@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.routers import lost_items, found_items
+from app.routers import auth, lost_items, found_items, profile
 from app.db.db import create_db_and_tables
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 @asynccontextmanager
@@ -30,6 +33,8 @@ app.add_middleware(
 # Register routers
 app.include_router(lost_items.router, prefix="/lost-items", tags=["Lost Items"])
 app.include_router(found_items.router, prefix="/found-items", tags=["Found Items"])
+app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+app.include_router(profile.router, prefix="/profile", tags=["Profile"])
 
 
 @app.get("/")
