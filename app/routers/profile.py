@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
 from sqlmodel import Session, select
 
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/my-items")
-async def get_my_found_items(
+async def get_my_items(
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user),
 ):
@@ -32,3 +32,18 @@ async def get_my_found_items(
         "found_items": found_items,
         "lost_items": lost_items,
     }
+
+
+@router.get("/found-items")
+async def get_my_found_items(
+    category: str,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    query = select(FoundItem).where(FoundItem.user_id == current_user["sub"]).where(FoundItem.category == 'others')
+
+    found_items = session.exec(
+        query.order_by(FoundItem.created_at.desc())
+    ).all()
+
+    return found_items

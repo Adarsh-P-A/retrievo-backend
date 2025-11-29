@@ -25,15 +25,13 @@ async def add_found_item(
         title=title,
         description=description,
         category=category,
-        date_found=parsed_date,
-        location_found=location,
+        date=parsed_date,
+        location=location,
     )
 
     session.add(db_item)
     session.commit()
     session.refresh(db_item)
-
-    print(f"Received Found Item: {db_item}")
 
     return {"status": "ok"}
 

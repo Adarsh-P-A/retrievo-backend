@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Form
 from datetime import datetime
 from sqlmodel import Session, select
 from app.db.db import get_session
 from app.models.lost_item import LostItem
+from app.utils.auth_helper import get_current_user
 
 router = APIRouter()
 
@@ -15,15 +16,17 @@ async def add_lost_item(
     date: str = Form(...),
     location: str = Form(...),
     session: Session = Depends(get_session),
+    current_user=Depends(get_current_user),
 ):
     parsed_date = datetime.fromisoformat(date.replace("Z", "+00:00"))
 
     db_item = LostItem(
+        user_id=current_user["sub"],
         title=title,
         description=description,
         category=category,
-        date_lost=parsed_date,
-        location_lost=location,
+        date=parsed_date,
+        location=location,
     )
 
     session.add(db_item)

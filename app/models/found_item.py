@@ -13,7 +13,7 @@ class FoundItem(SQLModel, table=True):
     title: str
     category: str
     description: str
-    location_found: str
+    location: str
     type: str = Field(default="found")
 
-    date_found: datetime
+    date: datetime

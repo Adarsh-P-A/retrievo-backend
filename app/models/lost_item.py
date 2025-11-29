@@ -13,7 +13,7 @@ class LostItem(SQLModel, table=True):
     title: str
     category: str
     description: str
-    location_lost: str
+    location: str
     type: str = Field(default="lost")
 
-    date_lost: datetime
+    date: datetime
