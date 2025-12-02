@@ -31,8 +31,8 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(lost_items.router, prefix="/lost-items", tags=["Lost Items"])
-app.include_router(found_items.router, prefix="/found-items", tags=["Found Items"])
+app.include_router(lost_items.router, prefix="/lost-item", tags=["Lost Items"])
+app.include_router(found_items.router, prefix="/found-item", tags=["Found Items"])
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(profile.router, prefix="/profile", tags=["Profile"])
 app.include_router(items.router, prefix="/items", tags=["Items"])

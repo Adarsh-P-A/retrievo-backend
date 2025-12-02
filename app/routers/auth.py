@@ -1,9 +1,11 @@
 import os
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from jose import jwt
 from sqlmodel import Session, select
+from google.oauth2 import id_token
+from google.auth.transport import requests as grequests
 
 from app.db.db import get_session
 from app.models.users import User
@@ -11,8 +13,13 @@ from app.models.users import User
 router = APIRouter()
 
 SECRET_KEY = os.getenv("JWT_SECRET", 'your_really_long_secret_key')
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+
+if not CLIENT_ID or not SECRET_KEY:
+    raise ValueError("Environment variables not set")
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
+ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 1 day
 
 
 class GoogleAuthPayload(BaseModel):
@@ -28,18 +35,26 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/google", response_model=TokenResponse)
-def google_auth(payload: GoogleAuthPayload, session: Session = Depends(get_session),):
-    db_user = session.exec(
-        select(User).where(User.google_id == payload.google_id)
-    ).first()
+def google_auth(payload: str, session: Session = Depends(get_session)):
+    try:
+        idinfo = id_token.verify_oauth2_token(payload, grequests.Request(), CLIENT_ID)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid Google ID token")
 
+    # idinfo now trusted and parsed by Google libs
+    google_id = idinfo["sub"]
+    email = idinfo.get("email")
+    name = idinfo.get("name")
+    picture = idinfo.get("picture")
+
+    db_user = session.exec(select(User).where(User.google_id == google_id)).first()
     if not db_user:
         db_user = User(
-            google_id=payload.google_id,
-            name=payload.name,
-            profile_picture=payload.picture,
-            email=payload.email,
-            role="user"  # Default role
+            google_id=google_id,
+            name=name,
+            profile_picture=picture,
+            email=email,
+            role="user",
         )
         session.add(db_user)
         session.commit()

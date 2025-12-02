@@ -25,19 +25,21 @@ async def get_all_items(session: Session = Depends(get_session)):
     }
 
 
-@router.get("/{item_id}")
+@router.get("/{item_id}/{item_type}")
 async def get_item(
     item_id: int,
+    item_type: str,
     session: Session = Depends(get_session),
 ):
-    # Try LostItem first
-    lost = session.get(LostItem, item_id)
-    if lost:
-        return lost
-
-    # Try FoundItem
-    found = session.get(FoundItem, item_id)
-    if found:
-        return found
-
-    return {"ok": False, "error": "Item not found"}
+    if (item_type == "lost"):
+        item = session.get(LostItem, item_id)
+        if not item:
+            return {"error": "Lost item not found"}
+        return item
+    elif (item_type == "found"):
+        item = session.get(FoundItem, item_id)
+        if not item:
+            return {"error": "Found item not found"}
+        return item
+    else:
+        return {"ok": False, "error": "Invalid item type"}
