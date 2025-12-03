@@ -1,25 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from app.routers import auth, items, lost_items, found_items, profile
-from app.db.db import create_db_and_tables
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print("Starting up...")
-    try:
-        create_db_and_tables()
-        print("DB ready.")
-    except Exception as e:
-        print("ERROR: Cannot connect to DB:", e)
-    yield
-    print("Shutting down...")
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 # CORS
 app.add_middleware(

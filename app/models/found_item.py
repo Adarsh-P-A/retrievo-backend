@@ -8,12 +8,17 @@ class FoundItem(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    user_id: str
 
+    # Finder info
+    user_id: int = Field(foreign_key="users.id")
+    reporter_public_id: str
+    reporter_name: str
+    reporter_picture: str
+
+    # Item fields
     title: str
     category: str
     description: str
     location: str
     type: str = Field(default="found")
-
     date: datetime

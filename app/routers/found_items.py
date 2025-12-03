@@ -22,6 +22,9 @@ async def add_found_item(
 
     db_item = FoundItem(
         user_id=current_user["sub"],
+        reporter_public_id=current_user["public_id"],
+        reporter_name=current_user["name"],
+        reporter_picture=current_user["profile_picture"],
         title=title,
         description=description,
         category=category,
@@ -33,18 +36,10 @@ async def add_found_item(
     session.commit()
     session.refresh(db_item)
 
-    return {"status": "ok"}
+    return {"ok": True}
 
 
 @router.get("/")
 async def get_found_items(session: Session = Depends(get_session)):
     items = session.exec(select(FoundItem).order_by(FoundItem.created_at.desc())).all()
     return items
-
-
-@router.get("/{item_id}")
-async def get_found_item(item_id: int, session: Session = Depends(get_session)):
-    item = session.get(FoundItem, item_id)
-    if not item:
-        return {"error": "Item not found"}
-    return item
