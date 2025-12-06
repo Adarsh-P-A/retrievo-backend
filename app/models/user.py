@@ -11,7 +11,7 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     name: str
-    profile_picture: str
+    image: str
     email: str
 
     role: str = Field(default="user")  # Possible roles: user, admin

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.db.db import get_session
 from app.models.found_item import FoundItem
 from app.models.lost_item import LostItem
+from app.models.user import User
 from app.utils.auth_helper import get_current_user
 
 
@@ -31,15 +32,29 @@ async def get_item(
     item_type: str,
     session: Session = Depends(get_session),
 ):
-    if (item_type == "lost"):
-        item = session.get(LostItem, item_id)
-        if not item:
-            return {"error": "Lost item not found"}
-        return item
-    elif (item_type == "found"):
-        item = session.get(FoundItem, item_id)
-        if not item:
-            return {"error": "Found item not found"}
-        return item
-    else:
-        return {"ok": False, "error": "Invalid item type"}
+    if item_type not in ["lost", "found"]:
+        raise HTTPException(400, "Invalid item type")
+
+    Type = LostItem if item_type == "lost" else FoundItem
+
+    statement = (
+        select(Type, User)
+        .join(User, User.id == Type.user_id)
+        .where(Type.id == item_id)
+    )
+
+    result = session.exec(statement).first()
+
+    if not result:
+        raise HTTPException(404, f"{item_type.capitalize()} item not found")
+
+    item, user = result
+
+    return {
+        "item": item,
+        "reporter": {
+            "public_id": user.public_id,
+            "name": user.name,
+            "image": user.image,
+        }
+    }

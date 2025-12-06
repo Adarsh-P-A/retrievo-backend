@@ -8,7 +8,7 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as grequests
 
 from app.db.db import get_session
-from app.models.users import User
+from app.models.user import User
 
 router = APIRouter()
 
@@ -49,7 +49,7 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
         db_user = User(
             public_id=google_id,
             name=name,
-            profile_picture=picture,
+            image=picture,
             email=email,
             role="user",
         )
