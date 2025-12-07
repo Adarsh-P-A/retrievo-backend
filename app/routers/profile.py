@@ -7,7 +7,7 @@ from app.models.found_item import FoundItem
 from app.models.lost_item import LostItem
 from app.models.user import User
 from app.utils.auth_helper import get_current_user
-from app.utils.s3_service import generate_signed_url
+from app.utils.s3_service import generate_signed_url, get_all_urls
 
 
 router = APIRouter()
@@ -43,17 +43,8 @@ async def get_my_items(
         .order_by(LostItem.created_at.desc())
     ).all()
 
-    lost_items_response = []
-    for item in lost_items:
-        data = item.model_dump()
-        data["image"] = generate_signed_url(item.image)
-        lost_items_response.append(data)
-
-    found_items_response = []
-    for item in found_items:
-        data = item.model_dump()
-        data["image"] = generate_signed_url(item.image)
-        found_items_response.append(data)
+    lost_items_response = get_all_urls(lost_items)
+    found_items_response = get_all_urls(found_items)
 
     return {
         "lost_items": lost_items_response,
@@ -84,6 +75,7 @@ async def get_profile(
     public_id: str,
     session: Session = Depends(get_session)
 ):
+    # 1. Fetch user
     user = session.exec(
         select(User).where(User.public_id == public_id)
     ).first()
@@ -100,6 +92,9 @@ async def get_profile(
         select(FoundItem).where(FoundItem.user_id == user.id)
     ).all()
 
+    lost_items_response = get_all_urls(lost_items)
+    found_items_response = get_all_urls(found_items)
+
     return {
         "user": {
             "name": user.name,
@@ -107,6 +102,6 @@ async def get_profile(
             "image": user.image,
             "created_at": user.created_at,
         },
-        "lost_items": lost_items,
-        "found_items": found_items,
+        "lost_items": lost_items_response,
+        "found_items": found_items_response,
     }

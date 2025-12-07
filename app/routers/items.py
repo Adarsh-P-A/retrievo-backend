@@ -7,7 +7,7 @@ from app.models.found_item import FoundItem
 from app.models.lost_item import LostItem
 from app.models.user import User
 from app.utils.auth_helper import get_current_user
-from app.utils.s3_service import compress_image, generate_signed_url, upload_to_s3
+from app.utils.s3_service import compress_image, generate_signed_url, get_all_urls, upload_to_s3
 
 
 router = APIRouter()
@@ -92,17 +92,8 @@ async def get_all_items(session: Session = Depends(get_session)):
         select(FoundItem).order_by(FoundItem.created_at.desc())
     ).all()
 
-    lost_items_response = []
-    for item in lost_items:
-        data = item.model_dump()
-        data["image"] = generate_signed_url(item.image)
-        lost_items_response.append(data)
-
-    found_items_response = []
-    for item in found_items:
-        data = item.model_dump()
-        data["image"] = generate_signed_url(item.image)
-        found_items_response.append(data)
+    lost_items_response = get_all_urls(lost_items)
+    found_items_response = get_all_urls(found_items)
 
     return {
         "lost_items": lost_items_response,
@@ -112,7 +103,7 @@ async def get_all_items(session: Session = Depends(get_session)):
 
 @router.get("/{item_id}/{item_type}")
 async def get_item(
-    item_id: int,
+    item_id: str,
     item_type: str,
     session: Session = Depends(get_session),
 ):

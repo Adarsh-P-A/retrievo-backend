@@ -72,3 +72,13 @@ def generate_signed_url(key: str, expires_in=3600):
         Params={"Bucket": BUCKET, "Key": key},
         ExpiresIn=expires_in
     )
+
+
+def get_all_urls(db_items):
+    items_response = []
+    for item in db_items:
+        data = item.model_dump()
+        data["image"] = generate_signed_url(item.image)
+        items_response.append(data)
+
+    return items_response
