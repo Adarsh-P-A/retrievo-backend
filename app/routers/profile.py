@@ -7,7 +7,7 @@ from app.models.found_item import FoundItem
 from app.models.lost_item import LostItem
 from app.models.user import User
 from app.utils.auth_helper import get_current_user
-from app.utils.s3_service import generate_signed_url, get_all_urls
+from app.utils.s3_service import get_all_urls
 
 
 router = APIRouter()
@@ -67,7 +67,9 @@ async def get_my_found_items_by_cat(
 
     items = session.exec(query).all()
 
-    return items
+    items_response = get_all_urls(items)
+
+    return items_response
 
 
 @router.get("/{public_id}")

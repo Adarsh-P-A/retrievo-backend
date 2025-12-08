@@ -3,22 +3,19 @@ import io
 from datetime import datetime, timezone
 from PIL import Image
 import boto3
-from botocore.config import Config
 
 
-BUCKET = os.getenv("S3_BUCKET")
-REGION = os.getenv("S3_REGION")
+BUCKET = os.getenv("R2_BUCKET")
 FOLDER = "uploads"
+URL = f"https://{os.getenv('CLOUDFLARE_ACCOUNT_ID')}.r2.cloudflarestorage.com"
 
-my_config = Config(
-    region_name=REGION,
-    retries={
-        'max_attempts': 5,
-        'mode': 'standard'
-    }
+s3 = boto3.client(
+    service_name="s3",
+    endpoint_url=URL,
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    region_name="auto",
 )
-
-s3 = boto3.client("s3", config=my_config)
 
 
 def compress_image(data: bytes, max_width=1400, quality=80):
@@ -60,7 +57,6 @@ def upload_to_s3(buffer: io.BytesIO, ext: str, mime: str, original_name: str):
         buffer,
         BUCKET,
         key,
-        ExtraArgs={"ContentType": mime, "ACL": "private"}
     )
 
     return key
