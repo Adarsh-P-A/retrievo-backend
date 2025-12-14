@@ -3,8 +3,7 @@ from sqlmodel import Session, select
 from datetime import datetime
 
 from app.db.db import get_session
-from app.models.found_item import FoundItem
-from app.models.lost_item import LostItem
+from app.models.item import Item
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_user_hostel
 from app.utils.s3_service import compress_image, generate_signed_url, get_all_urls, upload_to_s3
@@ -55,8 +54,6 @@ async def add_item(
     if item_type not in ["lost", "found"]:
         raise HTTPException(400, "Invalid item type")
 
-    model_type = LostItem if item_type == "lost" else FoundItem
-
     # clean strings
     title = title.strip()
     description = description.strip()
@@ -64,7 +61,7 @@ async def add_item(
     location = location.strip()
 
     # create DB item
-    db_item = model_type(
+    db_item = Item(
         user_id=user.id,
         reporter_public_id=user.public_id,
         reporter_name=user.name,
@@ -73,6 +70,7 @@ async def add_item(
         category=category,
         date=parsed_date,
         location=location,
+        type=item_type,
         image=s3_key,
     )
 
@@ -91,17 +89,21 @@ async def get_all_items(
     # Get user's hostel if logged in
     hostel = get_user_hostel(current_user, session)
 
-    lost_query = select(LostItem).order_by(LostItem.created_at.desc())
-    found_query = select(FoundItem).order_by(FoundItem.created_at.desc())
+    # Query all items with visibility filter
+    query = select(Item).order_by(Item.created_at.desc())
 
     # apply visibility filters based on user's hostel
     if hostel:
-        lost_query = lost_query.where((LostItem.visibility == hostel) | (LostItem.visibility == 'public'))
-        found_query = found_query.where((FoundItem.visibility == hostel) | (FoundItem.visibility == 'public'))
+        query = query.where((Item.visibility == hostel) | (Item.visibility == 'public'))
+    else:
+        query = query.where(Item.visibility == 'public')
 
     # fetch items
-    lost_items = session.exec(lost_query).all()
-    found_items = session.exec(found_query).all()
+    items = session.exec(query).all()
+
+    # separate by type
+    lost_items = [item for item in items if item.type == "lost"]
+    found_items = [item for item in items if item.type == "found"]
 
     # get urls
     lost_items_response = get_all_urls(lost_items)
@@ -127,13 +129,11 @@ async def get_item(
     if item_type not in ["lost", "found"]:
         raise HTTPException(400, "Invalid item type")
 
-    # decide type based on item_type
-    Type = LostItem if item_type == "lost" else FoundItem
-
     query = (
-        select(Type, User)
-        .join(User, User.id == Type.user_id)
-        .where(Type.id == item_id)
+        select(Item, User)
+        .join(User, User.id == Item.user_id)
+        .where(Item.id == item_id)
+        .where(Item.type == item_type)
     )
 
     result = session.exec(query).first()

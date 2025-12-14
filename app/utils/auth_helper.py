@@ -17,6 +17,19 @@ def get_current_user_optional(token: HTTPAuthorizationCredentials = Depends(bear
         payload = jwt.decode(token.credentials, os.getenv("JWT_SECRET"), algorithms=["HS256"])
         return payload
     except JWTError:
+        return None
+    
+bearer_scheme_required = HTTPBearer(auto_error=True)
+
+def get_current_user_required(token: HTTPAuthorizationCredentials = Depends(bearer_scheme_required)):
+    try:
+        payload = jwt.decode(
+            token.credentials,
+            os.getenv("JWT_SECRET"),
+            algorithms=["HS256"],
+        )
+        return payload
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
