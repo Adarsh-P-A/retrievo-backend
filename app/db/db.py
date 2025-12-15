@@ -1,8 +1,7 @@
+import os
 from sqlmodel import Session, create_engine
 
-DATABASE_URL = (
-    "postgresql://postgres:postgres@localhost:5432/retrievo_db"
-)
+DATABASE_URL = os.getenv("DATABASE_URL", 'postgresql://postgres:postgres@localhost:5432/retrievo_db')
 
 engine = create_engine(DATABASE_URL, echo=True)
 
