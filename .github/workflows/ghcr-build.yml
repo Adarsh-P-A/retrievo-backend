@@ -32,5 +32,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:main
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/itsthareesh/retrievo-backend:main
+            ghcr.io/itsthareesh/retrievo-backend:${{ github.sha }}
