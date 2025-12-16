@@ -7,6 +7,8 @@ from sqlmodel import SQLModel
 
 from alembic import context
 
+from dotenv import load_dotenv
+
 from app.models import *
 
 # this is the Alembic Config object, which provides
@@ -29,7 +31,9 @@ target_metadata = SQLModel.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/retrievo_db")
+load_dotenv(dotenv_path='../.env.backend')
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 
