@@ -1,7 +1,14 @@
 __pycache__
 *.pyc
+
 .env
 .env.*
+
 *.sqlite3
 venv
+
 .git
+.github
+.gitignore
+
+README.md
