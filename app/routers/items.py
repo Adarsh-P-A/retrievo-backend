@@ -6,7 +6,7 @@ from app.db.db import get_session
 from app.models.item import Item
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_user_hostel
-from app.utils.s3_service import compress_image, generate_signed_url, get_all_urls, upload_to_s3
+from app.utils.s3_service import compress_image, delete_s3_object, generate_signed_url, get_all_urls, upload_to_s3
 
 
 router = APIRouter()
@@ -94,7 +94,7 @@ async def get_all_items(
     # Get user's hostel if logged in
     hostel = get_user_hostel(current_user, session)
 
-    # Query all items with visibility filter
+    # Query all items
     query = select(Item).order_by(Item.created_at.desc())
 
     # apply visibility filters based on user's hostel
@@ -106,17 +106,10 @@ async def get_all_items(
     # fetch items
     items = session.exec(query).all()
 
-    # separate by type
-    lost_items = [item for item in items if item.type == "lost"]
-    found_items = [item for item in items if item.type == "found"]
-
-    # get urls
-    lost_items_response = get_all_urls(lost_items)
-    found_items_response = get_all_urls(found_items)
+    items_response = get_all_urls(items)
 
     return {
-        "lost_items": lost_items_response,
-        "found_items": found_items_response,
+        "items": items_response,
     }
 
 
@@ -215,3 +208,30 @@ async def update_item(
     session.refresh(item)
 
     return item.id
+
+@router.delete("/{item_id}")
+async def delete_item(
+    item_id: str,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user_required),
+):
+    item = session.exec(
+        select(Item).where(Item.id == item_id)
+    ).first()
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # ownership check
+    if item.user_id != int(current_user["sub"]):
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized to delete this item",
+        )
+    
+    delete_s3_object(item.image)
+
+    session.delete(item)
+    session.commit()
+
+    return True
