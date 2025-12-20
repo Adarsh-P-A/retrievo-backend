@@ -5,6 +5,7 @@ from datetime import datetime
 
 from app.db.db import get_session
 from app.models.item import Item
+from app.models.resolution import Resolution
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user, get_user_hostel
 from app.utils.s3_service import compress_image, delete_s3_object, generate_signed_url, get_all_urls, upload_to_s3
@@ -135,6 +136,20 @@ async def get_item(
 
     item, user = result
 
+    claim_status = "none"
+
+    if current_user:
+        viewer = get_db_user(session, current_user)
+
+        claim = session.exec(
+            select(Resolution)
+            .where(Resolution.found_item_id == item.id)
+            .where(Resolution.claimant_id == viewer.id)
+        ).first()
+
+        if claim:
+            claim_status = claim.status
+
     # check visibility rules
     if item.visibility != "public" and item.visibility != hostel:
         raise HTTPException(403, "Unauthorized to view this item")
@@ -148,7 +163,8 @@ async def get_item(
             "public_id": user.public_id,
             "name": user.name,
             "image": user.image,
-        }
+        },
+        "claim_status": claim_status,
     }
 
 
@@ -238,19 +254,3 @@ async def delete_item(
     session.commit()
 
     return True
-
-@router.get("/{item_id}/claim-status")
-def get_claim_status(
-    item_id: uuid.UUID,
-    session: Session = Depends(get_session),
-    current_user=Depends(get_current_user_optional),
-):
-    # Not logged in, then no claim
-    if not current_user:
-        return {"status": "none"}
-
-    user = get_db_user(session, current_user)
-
-    item = session.get(Item, item_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
