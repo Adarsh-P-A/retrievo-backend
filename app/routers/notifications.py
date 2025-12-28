@@ -8,8 +8,8 @@ from app.utils.auth_helper import get_current_user_required, get_db_user
 
 router = APIRouter()
 
-@router.get("/")
-async def get_my_notifications(
+@router.get("/all")
+async def get_all_notifications(
     limit: int = 20,
     unread_only: bool = False,
     session: Session = Depends(get_session),

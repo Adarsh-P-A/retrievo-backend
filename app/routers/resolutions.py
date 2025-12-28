@@ -90,62 +90,9 @@ def create_resolution(
     session.add(notification)
     session.commit()
 
-    return {
-        "ok": True,
-        "resolution_id": str(resolution.id),
-    }
-
-class ResolutionRejectRequest(BaseModel):
-    resolutionID: uuid.UUID
-    rejection_reason: str = Field(min_length=20, max_length=280)
-
-@router.post("/reject")
-def reject_resolution(
-    payload: ResolutionRejectRequest,
-    session: Session = Depends(get_session),
-    current_user=Depends(get_current_user_required),
-):
-    user = get_db_user(session, current_user)
-
-    # Fetch resolution
-    resolution = session.get(Resolution, payload.resolutionID)
-    if not resolution:
-        raise HTTPException(status_code=404, detail="Resolution not found")
-
-    # Fetch found item
-    found_item = session.get(Item, resolution.found_item_id)
-    if not found_item:
-        raise HTTPException(status_code=404, detail="Found item not found")
-
-    # Ensure user is the finder of the item
-    if found_item.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to reject this resolution")
-
-    # Update resolution status
-    resolution.status = "rejected"
-    resolution.rejection_reason = payload.rejection_reason
-    resolution.decided_at = datetime.now(timezone.utc)
-    
-    session.add(resolution)
-    session.commit()
-    session.refresh(resolution)
-
-    # Notify claimant
-    notification = Notification(
-        user_id=resolution.claimant_id,
-        type="claim_rejected",
-        title="Your claim has been rejected",
-        message=f"Your claim for the item '{found_item.title}' has been rejected by the finder. Reason: {payload.rejection_reason}",
-        item_id=found_item.id,
-        resolution_id=resolution.id,
-    )
-
-    session.add(notification)
-    session.commit()
-
     return { "ok": True }
 
-@router.get("/{resolution_id}")
+@router.get("/status/{resolution_id}")
 def get_resolution_status(
     resolution_id: uuid.UUID,
     session: Session = Depends(get_session),
@@ -201,7 +148,7 @@ def get_resolution_status(
         "item": item_data
     }
 
-@router.get("/item/{item_id}")
+@router.get("/review/{item_id}")
 def get_resolution_for_review(
     item_id: uuid.UUID,
     session: Session = Depends(get_session),
@@ -275,6 +222,57 @@ def approve_resolution(
         type="claim_approved",
         title="Your claim has been approved",
         message=f"Your claim for the item '{found_item.title}' has been approved by the finder.",
+        item_id=found_item.id,
+        resolution_id=resolution.id,
+    )
+
+    session.add(notification)
+    session.commit()
+
+    return { "ok": True }
+
+
+class ResolutionRejectRequest(BaseModel):
+    rejection_reason: str = Field(min_length=20, max_length=280)
+
+@router.post("/{resolution_id}/reject")
+def reject_resolution(
+    resolution_id: uuid.UUID,
+    payload: ResolutionRejectRequest,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user_required),
+):
+    user = get_db_user(session, current_user)
+
+    # Fetch resolution
+    resolution = session.get(Resolution, resolution_id)
+    if not resolution:
+        raise HTTPException(status_code=404, detail="Resolution not found")
+
+    # Fetch found item
+    found_item = session.get(Item, resolution.found_item_id)
+    if not found_item:
+        raise HTTPException(status_code=404, detail="Found item not found")
+
+    # Ensure user is the finder of the item
+    if found_item.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to reject this resolution")
+
+    # Update resolution status
+    resolution.status = "rejected"
+    resolution.rejection_reason = payload.rejection_reason
+    resolution.decided_at = datetime.now(timezone.utc)
+    
+    session.add(resolution)
+    session.commit()
+    session.refresh(resolution)
+
+    # Notify claimant
+    notification = Notification(
+        user_id=resolution.claimant_id,
+        type="claim_rejected",
+        title="Your claim has been rejected",
+        message=f"Your claim for the item '{found_item.title}' has been rejected by the finder. Reason: {payload.rejection_reason}",
         item_id=found_item.id,
         resolution_id=resolution.id,
     )
