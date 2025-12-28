@@ -13,6 +13,7 @@ class User(SQLModel, table=True):
     name: str
     image: str
     email: str
+    phone: Optional[str] = Field(default=None)
 
     role: str = Field(default="user")  # Possible roles: user, admin
     hostel: Optional[str] = Field(default=None)  # Possible values: boys, girls

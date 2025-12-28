@@ -135,6 +135,7 @@ def get_resolution_status(
         finder_contact = {
             "name": finder.name,
             "email": finder.email,
+            "phone": finder.phone,
         }
 
         return {
