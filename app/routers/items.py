@@ -2,8 +2,9 @@ from typing import Literal, Optional
 import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
 
 from app.db.db import get_session
 from app.models.item import Item
@@ -11,6 +12,8 @@ from app.models.resolution import Resolution
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user, get_user_hostel
 from app.utils.s3_service import compress_image, delete_s3_object, generate_signed_url, get_all_urls, upload_to_s3
+from app.models.report import Report
+from app.models.notification import Notification
 
 
 router = APIRouter()
@@ -32,9 +35,6 @@ async def add_item(
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
-    # user lookup
-    user = get_db_user(session, current_user)
-
     # parse date
     try:
         parsed_date = datetime.fromisoformat(date.replace("Z", "+00:00"))
@@ -64,6 +64,9 @@ async def add_item(
     title = title.strip()
     description = description.strip()
     location = location.strip()
+
+    # user lookup
+    user = get_db_user(session, current_user)
 
     # create DB item
     db_item = Item(
@@ -189,7 +192,7 @@ class ItemUpdateSchema(BaseModel):
 
 @router.patch("/{item_id}")
 async def update_item(
-    item_id: str,
+    item_id: uuid.UUID,
     updates: ItemUpdateSchema,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
@@ -200,6 +203,22 @@ async def update_item(
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    
+    # get resolution status
+    # if item is claimed and resolution is pending/approved, block updates
+    resolution = session.exec(
+        select(Resolution)
+        .where(
+            (Resolution.found_item_id == item.id) &
+            ((Resolution.status == "pending") | (Resolution.status == "approved"))
+        )
+    ).first()
+
+    if resolution:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot update item while it has a pending or approved claim",
+        )
 
     user = get_db_user(session, current_user)
     if not user or item.user_id != user.id:
@@ -224,7 +243,7 @@ async def update_item(
 
 @router.delete("/{item_id}")
 async def delete_item(
-    item_id: str,
+    item_id: uuid.UUID,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
@@ -249,4 +268,79 @@ async def delete_item(
     session.delete(item)
     session.commit()
 
-    return True
+    return {
+    "ok": True
+}
+
+class ReportCreateSchema(BaseModel):
+    reason: Literal['spam', 'inappropriate', 'harassment', 'fake', 'other']
+
+@router.post("/{id}/report")
+async def report_item(
+    id: uuid.UUID,
+    payload: ReportCreateSchema,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_user_required),
+):  
+    item = session.exec(
+        select(Item).where(Item.id == id)
+    ).first()
+
+    if not item or item.is_hidden: # hidden items cannot be reported
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Only logged in users can report
+    user = get_db_user(session, current_user)
+    
+    if not user:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    # prevent self-reporting
+    if item.user_id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot report your own item")
+
+    # Create report
+    report = Report(
+        user_id=user.id,
+        item_id=item.id,
+        reason=payload.reason,
+    )
+
+    session.add(report)
+
+    try:
+        session.commit()
+        session.refresh(report)
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="You have already reported this item")
+
+    # Moderation Logic
+
+    report_count = session.exec(
+        select(func.count(Report.id))
+        .where(Report.item_id == item.id)
+    ).first()
+
+    session.refresh(item) # refresh to get latest state
+
+    if report_count >= 5:
+        item.is_hidden = True
+        item.hidden_reason = "auto_report_threshold"
+
+        # Notify owner about hiding
+        notification = Notification(
+            user_id=item.user_id,
+            type="system_notice",
+            title="Your item has been hidden",
+            message=f"Your item '{item.title}' has been hidden due to multiple reports from users.",
+            item_id=item.id,
+        )
+
+        session.add(item)
+        session.add(notification)
+        session.commit()
+
+        # TODO: Increment warning count for user and ban if necessary
+
+    return { "ok": True }

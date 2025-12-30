@@ -34,7 +34,7 @@ async def set_hostel(
     session.commit()
     session.refresh(user)
 
-    return True
+    return {"ok": True}
 
 class PhonePayload(BaseModel):
     phone: str

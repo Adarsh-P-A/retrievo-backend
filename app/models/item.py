@@ -1,3 +1,4 @@
+from typing import Optional
 import uuid
 from sqlmodel import Field, SQLModel
 from datetime import datetime, timezone
@@ -21,3 +22,7 @@ class Item(SQLModel, table=True):
     date: datetime
     image: str
     visibility: str = Field(default="public")  # public/boys/girls
+
+    # Moderation
+    is_hidden: bool = Field(default=False)
+    hidden_reason: Optional[str] = Field(default=None) # Allowed fields: "auto_report_threshold", "admin_moderation"
