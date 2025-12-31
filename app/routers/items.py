@@ -87,7 +87,7 @@ async def get_all_items(
     hostel = get_user_hostel(session, current_user)
 
     # Query all items
-    query = select(Item).order_by(Item.created_at.desc())
+    query = select(Item).where(Item.is_hidden == False).order_by(Item.created_at.desc())
 
     # apply visibility filters based on user's hostel
     if hostel:
@@ -118,6 +118,7 @@ async def get_item(
         select(Item, User)
         .join(User, User.id == Item.user_id)
         .where(Item.id == item_id)
+        .where(Item.is_hidden == False)
     )
 
     result = session.exec(query).first()
@@ -188,7 +189,9 @@ async def update_item(
     current_user=Depends(get_current_user_required),
 ):
     item = session.exec(
-        select(Item).where(Item.id == item_id)
+        select(Item)
+        .where(Item.id == item_id)
+        .where(Item.is_hidden == False)
     ).first()
 
     if not item:
@@ -238,7 +241,9 @@ async def delete_item(
     current_user=Depends(get_current_user_required),
 ):
     item = session.exec(
-        select(Item).where(Item.id == item_id)
+        select(Item)
+        .where(Item.id == item_id)
+        .where(Item.is_hidden is False)
     ).first()
 
     if not item:
