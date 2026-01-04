@@ -50,7 +50,14 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
     # if email.split("@")[-1] != "nitc.ac.in":
     #     raise HTTPException(status_code=401, detail="Unauthorized domain")
 
-    db_user = session.exec(select(User).where(User.public_id == google_id)).first()
+    db_user = session.exec(
+        select(User)
+        .where(User.public_id == google_id)
+    ).first()
+
+    if db_user and db_user.is_banned:
+        raise HTTPException(status_code=403, detail="User is banned")
+
     if not db_user:
         db_user = User(
             public_id=google_id,

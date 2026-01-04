@@ -1,4 +1,5 @@
 import re
+from typing import Literal
 from pydantic import BaseModel, field_validator
 
 
@@ -21,3 +22,6 @@ class PhoneSetPayload(BaseModel):
             )
 
         return phone
+    
+class HostelSetPayload(BaseModel):
+    hostel: Literal['boys', 'girls']

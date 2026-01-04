@@ -1,7 +1,15 @@
+from enum import Enum
 from typing import Optional
 from sqlmodel import Field, SQLModel
 from datetime import datetime, timezone
 
+class HostelType(str, Enum):
+    boys = "boys"
+    girls = "girls"
+
+class RoleType(str, Enum):
+    user = "user"
+    admin = "admin"
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
@@ -15,9 +23,9 @@ class User(SQLModel, table=True):
     image: str
     email: str
     phone: Optional[str] = Field(default=None)
-    hostel: Optional[str] = Field(default=None)  # Possible values: boys, girls
+    hostel: Optional[HostelType] = Field(default=None)
 
-    role: str = Field(default="user")  # Possible roles: user, admin
+    role: RoleType = Field(default=RoleType.user)
 
     # Moderation
     warning_count: int = Field(default=0)

@@ -1,7 +1,13 @@
+from enum import Enum
 from typing import Optional
 import uuid
 from sqlmodel import Field, SQLModel
 from datetime import datetime, timezone
+
+class StatusType(str, Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
 
 class Resolution(SQLModel, table=True):
     __tablename__ = "resolutions"
@@ -15,7 +21,7 @@ class Resolution(SQLModel, table=True):
     # Linked reports
     found_item_id: uuid.UUID = Field(foreign_key="items.id", index=True, ondelete="CASCADE")
 
-    status: str = Field(default="pending", index=True) # values: "pending", "approved", "rejected"
+    status: StatusType = Field(default=StatusType.pending, index=True)
 
     # Content
     claim_description: str

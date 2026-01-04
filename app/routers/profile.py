@@ -1,7 +1,6 @@
-import re
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.db.db import get_session
@@ -9,18 +8,14 @@ from app.models.item import Item
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user
 from app.utils.s3_service import get_all_urls
-from app.schemas.profile_schemas import PhoneSetPayload
+from app.schemas.profile_schemas import PhoneSetPayload, HostelSetPayload
 
 
 router = APIRouter()
 
-class HostelPayload(BaseModel):
-    hostel: str
-
-
 @router.post("/set-hostel")
 async def set_hostel(
-    payload: HostelPayload,
+    payload: HostelSetPayload,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):

@@ -1,5 +1,5 @@
 from typing import Literal, Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func, and_, update
 from sqlalchemy.orm import aliased
@@ -307,16 +307,16 @@ def moderate_user(
             session.rollback()
             raise HTTPException(500, "Failed to issue warning")
     
-    # elif payload.action == "temp_ban":
-    #     user.is_banned = True
-    #     user.ban_reason = payload.reason or "Temporary ban by admin"
-    #     days = payload.ban_days or 7
-    #     user.ban_until = datetime.now(timezone.utc) + timedelta(days=days)
-    
-    elif payload.action == "perm_ban":
+    elif payload.action == "temp_ban":
         user.is_banned = True
-        user.ban_reason = payload.reason or "Permanently banned by admin"
-        user.ban_until = None
+        user.ban_reason = payload.reason or "Temporary ban by admin"
+        days = payload.ban_days or 7
+        user.ban_until = datetime.now(timezone.utc) + timedelta(days=days)
+    
+    # elif payload.action == "perm_ban":
+    #     user.is_banned = True
+    #     user.ban_reason = payload.reason or "Permanently banned by admin"
+    #     user.ban_until = None
     
     elif payload.action == "unban":
         user.is_banned = False
@@ -382,7 +382,7 @@ def get_reported_items(
         reports_by_item.setdefault(report.item_id, []).append({
             "id": report.id,
             "reporter_name": reporters.name,
-            "reason": report.reason,
+            "reason": report.reason.capitalize(),
             "created_at": report.created_at.isoformat(),
             "status": report.status
         })
