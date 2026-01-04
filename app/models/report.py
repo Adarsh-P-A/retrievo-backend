@@ -19,7 +19,7 @@ class Report(SQLModel, table=True):
     reason: str
     
     # Status
-    status: str = Field(default="pending", index=True)  # "pending", "reviewed", "dismissed"
+    status: str = Field(default="pending", index=True)  # "pending", "reviewed"
     reviewed_by: Optional[int] = Field(default=None, foreign_key="users.id")
     reviewed_at: Optional[datetime] = Field(default=None)
 

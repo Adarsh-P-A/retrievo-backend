@@ -1,9 +1,10 @@
 from typing import Literal, Optional, List
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select, func, and_
+from sqlmodel import Session, select, func, and_, update
 from sqlalchemy.orm import aliased
 from pydantic import BaseModel
+import uuid
 
 from app.db.db import get_session
 from app.models.user import User
@@ -111,47 +112,42 @@ def get_overview_stats(
     """Get overview statistics for the admin dashboard"""
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    # Total items
-    total_items = session.exec(select(func.count(Item.id))).one()
-    
-    # Items this month
-    items_current = session.exec(
-        select(func.count(Item.id)).where(Item.created_at >= month_start)
-    ).one()
-    
-    # Claims this month
-    claims_approved = session.exec(
-        select(func.count(Resolution.id)).where(
-            and_(
-                Resolution.decided_at >= month_start,
-                Resolution.status == "approved"
-            )
+
+    # Items
+    total_items, items_current = session.exec(
+        select(
+            func.count(Item.id),
+            func.count().filter(Item.created_at >= month_start),
         )
     ).one()
-    
-    claims_rejected = session.exec(
-        select(func.count(Resolution.id)).where(
-            and_(
-                Resolution.decided_at >= month_start,
-                Resolution.status == "rejected"
-            )
+
+    # Claims
+    claims_approved, claims_rejected, claims_pending = session.exec(
+        select(
+            func.count().filter(
+                and_(
+                    Resolution.status == "approved",
+                    Resolution.decided_at >= month_start,
+                )
+            ),
+            func.count().filter(
+                and_(
+                    Resolution.status == "rejected",
+                    Resolution.decided_at >= month_start,
+                )
+            ),
+            func.count().filter(Resolution.status == "pending"),
         )
     ).one()
-    
-    claims_pending = session.exec(
-        select(func.count(Resolution.id)).where(Resolution.status == "pending")
-    ).one()
-    
+
     # Reports
-    active_reports = session.exec(
-        select(func.count(Report.id)).where(Report.status == "pending")
+    active_reports, reports_current = session.exec(
+        select(
+            func.count().filter(Report.status == "pending"),
+            func.count().filter(Report.created_at >= month_start),
+        )
     ).one()
-    
-    reports = session.exec(
-        select(func.count(Report.id)).where(Report.created_at >= month_start)
-    ).one()
-    
+
     return OverviewStats(
         total_items=total_items,
         items_current_month=items_current,
@@ -159,7 +155,7 @@ def get_overview_stats(
         claims_rejected_current_month=claims_rejected,
         claims_pending=claims_pending,
         active_reports=active_reports,
-        reports_current_month=reports,
+        reports_current_month=reports_current,
     )
 
 
@@ -303,23 +299,40 @@ def get_users_for_management(
     admin: User = Depends(require_admin)
 ):
     """Get all users with moderation info"""
-    users = session.exec(select(User)).all()
-    
-    user_details = []
-    for user in users:
-        # Count items posted
-        items_count = session.exec(
-            select(func.count(Item.id)).where(Item.user_id == user.id)
-        ).one()
-        
-        # Count reports received (items they posted that were reported)
-        reports_count = session.exec(
-            select(func.count(Report.id))
-            .join(Item, Report.item_id == Item.id)
-            .where(Item.user_id == user.id)
-        ).one()
-        
-        user_details.append(UserDetail(
+    items_count_sq = (
+        select(
+            Item.user_id,
+            func.count(Item.id).label("items_posted"),
+        )
+        .group_by(Item.user_id)
+        .subquery()
+    )
+
+    reports_count_sq = (
+        select(
+            Item.user_id,
+            func.count(Report.id).label("reports_received"),
+        )
+        .join(Report, Report.item_id == Item.id)
+        .group_by(Item.user_id)
+        .subquery()
+    )
+
+    rows = session.exec(
+        select(
+            User,
+            func.coalesce(items_count_sq.c.items_posted, 0),
+            func.coalesce(reports_count_sq.c.reports_received, 0),
+        )
+        .outerjoin(items_count_sq, items_count_sq.c.user_id == User.id)
+        .outerjoin(reports_count_sq, reports_count_sq.c.user_id == User.id)
+        .order_by(func.coalesce(reports_count_sq.c.reports_received, 0).desc())
+    ).all()
+
+    users = []
+
+    for user, items_posted, reports_received in rows:
+        users.append(UserDetail(
             id=user.id,
             public_id=user.public_id,
             name=user.name,
@@ -330,13 +343,11 @@ def get_users_for_management(
             is_banned=user.is_banned,
             ban_reason=user.ban_reason,
             ban_until=user.ban_until,
-            items_posted=items_count,
-            reports_received=reports_count
+            items_posted=items_posted,
+            reports_received=reports_received,
         ))
-    
-    # Sort by reports received (most problematic first)
-    user_details.sort(key=lambda x: x.reports_received, reverse=True)
-    return user_details
+
+    return users
 
 
 @router.post("/users/{user_id}/moderate")
@@ -353,25 +364,32 @@ def moderate_user(
     
     if payload.action == "warn":
         user.warning_count += 1
+    
     elif payload.action == "temp_ban":
         user.is_banned = True
         user.ban_reason = payload.reason or "Temporary ban by admin"
         days = payload.ban_days or 7
         user.ban_until = datetime.now(timezone.utc) + timedelta(days=days)
+    
     elif payload.action == "perm_ban":
         user.is_banned = True
         user.ban_reason = payload.reason or "Permanently banned by admin"
         user.ban_until = None
+    
     elif payload.action == "unban":
         user.is_banned = False
         user.ban_reason = None
         user.ban_until = None
+    
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     
-    session.add(user)
-    session.commit()
-    session.refresh(user)
+    try:
+        session.add(user)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise HTTPException(500, "Failed to moderate user")
     
     return {
         "ok": True,
@@ -385,54 +403,60 @@ def get_reported_items(
     admin: User = Depends(require_admin)
 ):
     """Get all reported items"""
-    # Get items with reports
-    items_with_reports = session.exec(
-        select(
-            Item.id,
-            func.count(Report.id).label("report_count")
-        )
+
+    Owner = aliased(User)
+    Reporter = aliased(User)
+
+    # Get items with reports count field appended
+    # Returns list of (Item, Owner, report_count)
+    items = session.exec(
+        select(Item, Owner, func.count(Report.id).label("report_count"))
         .join(Report, Report.item_id == Item.id)
-        .group_by(Item.id)
+        .join(Owner, Item.user_id == Owner.id)
+        .group_by(Item.id, Owner.id)
         .order_by(func.count(Report.id).desc())
     ).all()
     
+    if not items:
+        return []
+    
+    item_ids = [item.id for item, _, _ in items]
+    
+    # Get all reports for these items
+    # Returns list of (Report, User aka Reporter)
+    reports = session.exec(
+        select(Report, Reporter)
+        .join(Reporter, Report.user_id == Reporter.id)
+        .where(Report.item_id.in_(item_ids))
+        .order_by(Report.created_at.desc())
+    ).all()
+
+    reports_by_item: dict[int, list[dict]] = {}
+
+    # Organize reports under their respective items
+    for report, reporters in reports:
+        reports_by_item.setdefault(report.item_id, []).append({
+            "id": report.id,
+            "reporter_name": reporters.name,
+            "reason": report.reason,
+            "created_at": report.created_at.isoformat(),
+            "status": report.status
+        })
+
     reported_items = []
-    for item_id, report_count in items_with_reports:
-        item = session.get(Item, item_id)
-        if not item:
-            continue
-        
-        owner = session.get(User, item.user_id)
-        
-        # Get all reports for this item
-        reports = session.exec(
-            select(Report, User)
-            .join(User, Report.user_id == User.id)
-            .where(Report.item_id == item.id)
-        ).all()
-        
-        report_details = [
-            {
-                "id": report.id,
-                "reporter_name": user.name,
-                "reason": report.reason,
-                "created_at": report.created_at.isoformat(),
-                "status": report.status
-            }
-            for report, user in reports
-        ]
-        
+    
+    for item, owner, report_count in items:
         reported_items.append(ReportedItemDetail(
             item_id=str(item.id),
             item_title=item.title,
             item_type=item.type,
-            item_owner_name=owner.name if owner else "Unknown",
-            item_owner_id=owner.public_id if owner else "",
+            item_owner_name=owner.name,
+            item_owner_id=owner.public_id,
             report_count=report_count,
             is_hidden=item.is_hidden,
             hidden_reason=item.hidden_reason,
             created_at=item.created_at,
-            reports=report_details
+            reports=reports_by_item.get(item.id, [])
         ))
     
     return reported_items
@@ -440,41 +464,54 @@ def get_reported_items(
 
 @router.post("/items/{item_id}/moderate")
 def moderate_item(
-    item_id: str,
+    item_id: uuid.UUID,
     payload: ModerateItemRequest,
     session: Session = Depends(get_session),
     admin: User = Depends(require_admin)
 ):
-    """Moderate an item (hide, restore, delete)"""
-    import uuid
-    try:
-        item_uuid = uuid.UUID(item_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid item ID")
+    """Moderate an item (hide, restore, delete)"""    
+    item = session.get(Item, item_id)
     
-    item = session.get(Item, item_uuid)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     
     if payload.action == "hide":
         item.is_hidden = True
         item.hidden_reason = payload.reason or "admin_moderation"
-        session.add(item)
-        session.commit()
-        return {"success": True, "message": "Item hidden successfully"}
+        
+        try:
+            session.add(item)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise HTTPException(500, "Failed to hide item")
+        
+        return {
+            "ok": True,
+            "message": "Item hidden successfully"
+        }
     
     elif payload.action == "restore":
         item.is_hidden = False
         item.hidden_reason = None
+       
         # Mark all reports as reviewed
-        reports = session.exec(select(Report).where(Report.item_id == item.id)).all()
+        session.exec(
+            update(Report)
+            .where(Report.item_id == item.id)
+            .values(
+                status="reviewed",
+                reviewed_by=admin.id,
+                reviewed_at=datetime.now(timezone.utc),
+            )
+        )
         
-        for report in reports:
-            report.status = "dismissed"
-            report.reviewed_by = admin.id
-            report.reviewed_at = datetime.now(timezone.utc)
-        session.add(item)
-        session.commit()
+        try:
+            session.add(item)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise HTTPException(500, "Failed to restore item")
         
         return {
             "ok": True, 
@@ -482,19 +519,17 @@ def moderate_item(
         }
     
     elif payload.action == "delete":
-        # Delete related reports first
-        reports = session.exec(select(Report).where(Report.item_id == item.id)).all()
-        for report in reports:
-            session.delete(report)
-        
-        # Delete related resolutions
-        resolutions = session.exec(select(Resolution).where(Resolution.found_item_id == item.id)).all()
-        for resolution in resolutions:
-            session.delete(resolution)
-        
-        session.delete(item)
-        session.commit()
-        return {"success": True, "message": "Item deleted successfully"}
+        try:
+            session.delete(item)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise HTTPException(500, "Failed to delete item")
+
+        return {
+            "ok": True,
+            "message": "Item deleted successfully"
+        }
     
     else:
         raise HTTPException(status_code=400, detail="Invalid action")

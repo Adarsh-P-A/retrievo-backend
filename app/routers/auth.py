@@ -61,7 +61,6 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
         )
         session.add(db_user)
         session.commit()
-        session.refresh(db_user)
 
     expiry = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
