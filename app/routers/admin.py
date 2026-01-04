@@ -11,7 +11,8 @@ from app.models.user import User
 from app.models.item import Item
 from app.models.resolution import Resolution
 from app.models.report import Report
-from app.utils.auth_helper import get_current_user_required
+from app.utils.auth_helper import get_current_user_required, get_db_user
+from app.models.notification import Notification
 
 router = APIRouter()
 
@@ -98,11 +99,29 @@ class ModerateItemRequest(BaseModel):
     reason: Optional[str] = None
 
 
-def require_admin(user: User = Depends(get_current_user_required)):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
+def require_admin(
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user_required),
+):
+    db_user = get_db_user(session, current_user)
 
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    if db_user.role != "admin":
+        raise HTTPException(403, "Admin access required")
+
+    return db_user
+
+@router.get("/admin-check")
+def admin_check(
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin)
+):
+    return {
+        "ok": True, 
+        "message": "User is admin"
+    }
 
 @router.get("/stats", response_model=OverviewStats)
 def get_overview_stats(
@@ -249,7 +268,8 @@ def get_recent_activity(
 
 @router.get("/claims", response_model=List[ClaimDetail])
 def get_claims_for_moderation(
-    status: Literal["pending", "approved", "rejected", None],
+    status: Optional[Literal["pending", "approved", "rejected"]] = None,
+    skip: int = 0,
     limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
     admin: User = Depends(require_admin)
@@ -264,6 +284,7 @@ def get_claims_for_moderation(
         .join(User, Resolution.claimant_id == User.id)
         .join(Owner, Item.user_id == Owner.id)
         .order_by(Resolution.created_at.desc())
+        .offset(skip)
         .limit(limit)
     )
 
@@ -295,6 +316,8 @@ def get_claims_for_moderation(
 
 @router.get("/users", response_model=List[UserDetail])
 def get_users_for_management(
+    skip: int = 0,
+    limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
     admin: User = Depends(require_admin)
 ):
@@ -327,6 +350,8 @@ def get_users_for_management(
         .outerjoin(items_count_sq, items_count_sq.c.user_id == User.id)
         .outerjoin(reports_count_sq, reports_count_sq.c.user_id == User.id)
         .order_by(func.coalesce(reports_count_sq.c.reports_received, 0).desc())
+        .limit(limit)
+        .offset(skip)
     ).all()
 
     users = []
@@ -364,12 +389,26 @@ def moderate_user(
     
     if payload.action == "warn":
         user.warning_count += 1
+
+        notification = Notification(
+            user_id=user.id,
+            title="Warning Issued",
+            message=payload.reason or "You have received a warning from the admin team.",
+            type="warning_issued",
+        )
+
+        try:
+            session.add(notification)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise HTTPException(500, "Failed to issue warning")
     
-    elif payload.action == "temp_ban":
-        user.is_banned = True
-        user.ban_reason = payload.reason or "Temporary ban by admin"
-        days = payload.ban_days or 7
-        user.ban_until = datetime.now(timezone.utc) + timedelta(days=days)
+    # elif payload.action == "temp_ban":
+    #     user.is_banned = True
+    #     user.ban_reason = payload.reason or "Temporary ban by admin"
+    #     days = payload.ban_days or 7
+    #     user.ban_until = datetime.now(timezone.utc) + timedelta(days=days)
     
     elif payload.action == "perm_ban":
         user.is_banned = True
@@ -396,9 +435,10 @@ def moderate_user(
         "message": f"User {payload.action} applied successfully"
     }
 
-
 @router.get("/reported-items", response_model=List[ReportedItemDetail])
 def get_reported_items(
+    skip: int = 0,
+    limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
     admin: User = Depends(require_admin)
 ):
@@ -415,6 +455,8 @@ def get_reported_items(
         .join(Owner, Item.user_id == Owner.id)
         .group_by(Item.id, Owner.id)
         .order_by(func.count(Report.id).desc())
+        .offset(skip)
+        .limit(limit)
     ).all()
     
     if not items:
