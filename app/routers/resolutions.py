@@ -116,18 +116,15 @@ def get_resolution_status(
     
     resolution, found_item = result
 
-    if resolution.claimant_id != user.id:
+    if not resolution:
+        raise HTTPException(status_code=404, detail="Resolution not found")
+
+    # Ensure user is the claimant or admin
+    if resolution.claimant_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to view this resolution")
     
     item_data = found_item.model_dump(exclude={"type", "created_at", "visibility", "user_id"})
     item_data["image"] = generate_signed_url(item_data["image"])
-    
-    if not resolution:
-        raise HTTPException(status_code=404, detail="Resolution not found")
-
-    # Ensure user is the claimant
-    if resolution.claimant_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this resolution")
     
     if resolution.status == "approved":
         finder = session.get(User, found_item.user_id)
