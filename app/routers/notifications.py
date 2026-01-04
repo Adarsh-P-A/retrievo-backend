@@ -67,7 +67,6 @@ async def mark_notification_read(
         )
 
     notif.is_read = True
-    session.add(notif)
     session.commit()
 
     return {"ok": True}

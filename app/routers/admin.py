@@ -1,9 +1,8 @@
 from typing import Literal, Optional, List
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func, and_, update
 from sqlalchemy.orm import aliased
-from pydantic import BaseModel
 import uuid
 
 from app.db.db import get_session
@@ -11,107 +10,11 @@ from app.models.user import User
 from app.models.item import Item
 from app.models.resolution import Resolution
 from app.models.report import Report
-from app.utils.auth_helper import get_current_user_required, get_db_user
+from app.utils.auth_helper import require_admin
 from app.models.notification import Notification
+from app.schemas.admin_schemas import *
 
 router = APIRouter()
-
-
-# Response Models
-class OverviewStats(BaseModel):
-    total_items: int
-    items_current_month: int
-    claims_approved_current_month: int
-    claims_rejected_current_month: int
-    claims_pending: int
-    active_reports: int
-    reports_current_month: int
-
-
-class ActivityItem(BaseModel):
-    id: str
-    type: str  # "claim_approved", "claim_rejected", "claim_pending", "report_filed", "item_auto_hidden"
-    description: str
-    timestamp: datetime
-    metadata: dict
-
-
-class ClaimDetail(BaseModel):
-    id: str
-    item_id: str
-    item_title: str
-    item_owner_name: str
-    item_owner_id: str
-    claimer_name: str
-    claimer_id: str
-    claimer_email: str
-    status: str
-    created_at: datetime
-    claim_description: str
-    decided_at: Optional[datetime]
-
-
-class UserDetail(BaseModel):
-    id: int
-    public_id: str
-    name: str
-    email: str
-    image: str
-    created_at: datetime
-    warning_count: int
-    is_banned: bool
-    ban_reason: Optional[str]
-    ban_until: Optional[datetime]
-    items_posted: int
-    reports_received: int
-
-
-class ReportedItemDetail(BaseModel):
-    item_id: str
-    item_title: str
-    item_type: str
-    item_owner_name: str
-    item_owner_id: str
-    report_count: int
-    is_hidden: bool
-    hidden_reason: Optional[str]
-    created_at: datetime
-    reports: List[dict]
-
-
-class InsightData(BaseModel):
-    most_reported_items: List[dict]
-    most_reported_users: List[dict]
-    claim_success_rate: float
-    avg_claim_resolution_time_hours: Optional[float]
-    items_by_category: List[dict]
-    claims_by_status: dict
-
-
-class ModerateUserRequest(BaseModel):
-    action: str  # "warn", "temp_ban", "perm_ban", "unban"
-    reason: Optional[str] = None
-    ban_days: Optional[int] = None
-
-
-class ModerateItemRequest(BaseModel):
-    action: str  # "hide", "restore", "delete"
-    reason: Optional[str] = None
-
-
-def require_admin(
-    session: Session = Depends(get_session),
-    current_user = Depends(get_current_user_required),
-):
-    db_user = get_db_user(session, current_user)
-
-    if not db_user:
-        raise HTTPException(404, "User not found")
-
-    if db_user.role != "admin":
-        raise HTTPException(403, "Admin access required")
-
-    return db_user
 
 @router.get("/admin-check")
 def admin_check(
@@ -424,7 +327,6 @@ def moderate_user(
         raise HTTPException(status_code=400, detail="Invalid action")
     
     try:
-        session.add(user)
         session.commit()
     except Exception:
         session.rollback()
@@ -522,7 +424,6 @@ def moderate_item(
         item.hidden_reason = payload.reason or "admin_moderation"
         
         try:
-            session.add(item)
             session.commit()
         except Exception:
             session.rollback()
@@ -549,7 +450,6 @@ def moderate_item(
         )
         
         try:
-            session.add(item)
             session.commit()
         except Exception:
             session.rollback()

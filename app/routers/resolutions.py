@@ -1,8 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlmodel import Field, Session, select
+from sqlmodel import Session, select
 
 from app.db.db import get_session
 from app.models.item import Item
@@ -11,13 +10,10 @@ from app.models.resolution import Resolution
 from app.utils.auth_helper import get_current_user_required, get_db_user
 from app.utils.s3_service import generate_signed_url
 from app.models.user import User
+from app.schemas.resolution_schemas import ResolutionCreateRequest, ResolutionRejectRequest
 
 
 router = APIRouter()
-    
-class ResolutionCreateRequest(BaseModel):
-    found_item_id: uuid.UUID
-    claim_description: str = Field(min_length=20)
 
 @router.post("/create")
 def create_resolution(
@@ -74,7 +70,7 @@ def create_resolution(
     )
 
     session.add(resolution)
-    session.commit()
+    session.commit() # commit to generate ID
     session.refresh(resolution)
 
     # Notify finder
@@ -209,12 +205,8 @@ def approve_resolution(
     # Update resolution status
     resolution.status = "approved"
     resolution.decided_at = datetime.now(timezone.utc)
-    
-    session.add(resolution)
-    session.commit()
-    session.refresh(resolution)
 
-    # Notify claimant
+    # Notify claimant (create new notification)
     notification = Notification(
         user_id=resolution.claimant_id,
         type="claim_approved",
@@ -228,10 +220,6 @@ def approve_resolution(
     session.commit()
 
     return { "ok": True }
-
-
-class ResolutionRejectRequest(BaseModel):
-    rejection_reason: str = Field(min_length=20, max_length=280)
 
 @router.post("/{resolution_id}/reject")
 def reject_resolution(
@@ -260,12 +248,8 @@ def reject_resolution(
     resolution.status = "rejected"
     resolution.rejection_reason = payload.rejection_reason
     resolution.decided_at = datetime.now(timezone.utc)
-    
-    session.add(resolution)
-    session.commit()
-    session.refresh(resolution)
 
-    # Notify claimant
+    # Notify claimant (create new notification)
     notification = Notification(
         user_id=resolution.claimant_id,
         type="claim_rejected",

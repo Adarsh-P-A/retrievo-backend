@@ -1,7 +1,7 @@
 import re
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlmodel import Session, select
 
 from app.db.db import get_session
@@ -9,6 +9,7 @@ from app.models.item import Item
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user
 from app.utils.s3_service import get_all_urls
+from app.schemas.profile_schemas import PhoneSetPayload
 
 
 router = APIRouter()
@@ -30,18 +31,14 @@ async def set_hostel(
 
     user.hostel = payload.hostel
     
-    session.add(user)
     session.commit()
     session.refresh(user)
 
     return {"ok": True}
 
-class PhonePayload(BaseModel):
-    phone: str
-
 @router.post("/set-phone")
 async def set_phone(
-    payload: PhonePayload,
+    payload: PhoneSetPayload,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
@@ -52,22 +49,9 @@ async def set_phone(
             status_code=403,
             detail="Phone number already set"
         )
-    
-    E164_REGEX = re.compile(r"^\+[1-9]\d{7,14}$")
 
-    # Normalize input
-    phone = payload.phone.strip()
-    phone = re.sub(r"[ \-\(\)]", "", phone)  # remove spaces, dashes, ()
+    user.phone = payload.phone
 
-    if not E164_REGEX.match(phone):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid phone number. Use format: +<countrycode><number>"
-        )
-
-    user.phone = phone
-
-    session.add(user)
     session.commit()
     session.refresh(user)
 
