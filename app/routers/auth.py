@@ -50,27 +50,32 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
     # if email.split("@")[-1] != "nitc.ac.in":
     #     raise HTTPException(status_code=401, detail="Unauthorized domain")
 
-    db_user = session.exec(select(User).where(User.public_id == google_id)).first()
+    db_user = session.exec(
+        select(User)
+        .where(User.public_id == google_id)
+    ).first()
+
+    if db_user and db_user.is_banned:
+        raise HTTPException(status_code=403, detail="User is banned")
+
     if not db_user:
         db_user = User(
             public_id=google_id,
             name=name,
             image=picture,
             email=email,
-            role="user",
-            hostel=None,
+            role="user",        
         )
         session.add(db_user)
         session.commit()
-        session.refresh(db_user)
 
     expiry = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     jwt_payload = {
         "sub": db_user.public_id,
-        "role": db_user.role,
         "iat": datetime.now(timezone.utc),
         "exp": expiry,
+        "hostel": db_user.hostel,
     }
 
     token = jwt.encode(jwt_payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -102,9 +107,9 @@ def refresh_token(payload: RefreshTokenRequest, session: Session = Depends(get_s
         
         jwt_payload = {
             "sub": db_user.public_id,
-            "role": db_user.role,
             "iat": datetime.now(timezone.utc),
             "exp": expiry,
+            "hostel": db_user.hostel,
         }
         
         new_token = jwt.encode(jwt_payload, SECRET_KEY, algorithm=ALGORITHM)

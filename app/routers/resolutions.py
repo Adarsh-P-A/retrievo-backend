@@ -1,8 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlmodel import Field, Session, select
+from sqlmodel import Session, select
 
 from app.db.db import get_session
 from app.models.item import Item
@@ -11,13 +10,10 @@ from app.models.resolution import Resolution
 from app.utils.auth_helper import get_current_user_required, get_db_user
 from app.utils.s3_service import generate_signed_url
 from app.models.user import User
+from app.schemas.resolution_schemas import ResolutionCreateRequest, ResolutionRejectRequest
 
 
 router = APIRouter()
-    
-class ResolutionCreateRequest(BaseModel):
-    found_item_id: uuid.UUID
-    claim_description: str = Field(min_length=20)
 
 @router.post("/create")
 def create_resolution(
@@ -39,32 +35,24 @@ def create_resolution(
     if found_item.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot claim your own item")
 
-    # Block claims if already resolved
-    approved = session.exec(
-        select(Resolution)
+    # Block claims if already resolved or pending claim by same user exists
+    blocking_status = session.exec(
+        select(Resolution.status)
         .where(Resolution.found_item_id == found_item.id)
-        .where(Resolution.status == "approved")
+        .where(
+            (Resolution.status == "approved") |
+            (
+                (Resolution.status == "pending") &
+                (Resolution.claimant_id == user.id)
+            )
+        )
     ).first()
 
-    if approved:
-        raise HTTPException(
-            status_code=400,
-            detail="This item has already been resolved",
-        )
+    if blocking_status:
+        if blocking_status == "approved":
+            raise HTTPException(status_code=400, detail="This item has already been resolved")
 
-    # Prevent duplicate claim by same user
-    existing = session.exec(
-        select(Resolution)
-        .where(Resolution.found_item_id == found_item.id)
-        .where(Resolution.claimant_id == user.id)
-        .where(Resolution.status == "pending")
-    ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail="Already a pending claim for this item exists",
-        )
+        raise HTTPException(status_code=409, detail="Already a pending claim for this item exists")
 
     # Create resolution
     resolution = Resolution(
@@ -73,10 +61,6 @@ def create_resolution(
         claim_description=payload.claim_description,
     )
 
-    session.add(resolution)
-    session.commit()
-    session.refresh(resolution)
-
     # Notify finder
     notification = Notification(
         user_id=found_item.user_id,
@@ -84,10 +68,15 @@ def create_resolution(
         title="New claim received",
         message=f"A user has submitted a claim for your found item '{found_item.title}'.",
         item_id=found_item.id,
-        resolution_id=resolution.id,
+        resolution_id=None, # will set after flush
     )
 
+    session.add(resolution)
+    session.flush()
+
+    notification.resolution_id = resolution.id
     session.add(notification)
+    
     session.commit()
 
     return { "ok": True }
@@ -98,56 +87,44 @@ def get_resolution_status(
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
-    """
-    Get resolution by ID - accessible only by claimant.
-    """
     user = get_db_user(session, current_user)
 
-    # Fetch resolution
     stmt = (
-        select(Resolution, Item)
+        select(Resolution, Item, User)
         .join(Item, Resolution.found_item_id == Item.id)
+        .join(User, Item.user_id == User.id)
         .where(Resolution.id == resolution_id)
     )
 
     result = session.exec(stmt).first()
     if not result:
         raise HTTPException(status_code=404, detail="Claim not found")
-    
-    resolution, found_item = result
 
-    if resolution.claimant_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this resolution")
-    
+    resolution, found_item, finder = result
+
+    # Authorization
+    if resolution.claimant_id != user.id and user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to view this resolution",
+        )
+
     item_data = found_item.model_dump(exclude={"type", "created_at", "visibility", "user_id"})
     item_data["image"] = generate_signed_url(item_data["image"])
-    
-    if not resolution:
-        raise HTTPException(status_code=404, detail="Resolution not found")
 
-    # Ensure user is the claimant
-    if resolution.claimant_id != user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to view this resolution")
-    
+    response = {
+        "resolution": resolution,
+        "item": item_data,
+    }
+
     if resolution.status == "approved":
-        finder = session.get(User, found_item.user_id)
-
-        finder_contact = {
+        response["finder_contact"] = {
             "name": finder.name,
             "email": finder.email,
             "phone": finder.phone,
         }
 
-        return {
-            "resolution": resolution,
-            "item": item_data,
-            "finder_contact": finder_contact,
-        }
-
-    return { 
-        "resolution": resolution,
-        "item": item_data
-    }
+    return response
 
 @router.get("/review/{item_id}")
 def get_resolution_for_review(
@@ -195,29 +172,31 @@ def approve_resolution(
 ):
     user = get_db_user(session, current_user)
 
-    # Fetch resolution
-    resolution = session.get(Resolution, resolution_id)
-    if not resolution:
+    query = (
+        select(Resolution, Item)
+        .join(Item, Resolution.found_item_id == Item.id)
+        .where(Resolution.id == resolution_id)
+    )
+
+    result = session.exec(query).first()
+    if not result:
         raise HTTPException(status_code=404, detail="Resolution not found")
+    
+    resolution, found_item = result
 
-    # Fetch found item
-    found_item = session.get(Item, resolution.found_item_id)
-    if not found_item:
-        raise HTTPException(status_code=404, detail="Found item not found")
-
-    # Ensure user is the finder of the item
+    # Authorization: only finder can approve
     if found_item.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized to approve this resolution")
+    
+    # State guard
+    if resolution.status != "pending":
+        raise HTTPException(status_code=400, detail="Only pending resolutions can be approved")
 
     # Update resolution status
     resolution.status = "approved"
     resolution.decided_at = datetime.now(timezone.utc)
-    
-    session.add(resolution)
-    session.commit()
-    session.refresh(resolution)
 
-    # Notify claimant
+    # Notify claimant (create new notification)
     notification = Notification(
         user_id=resolution.claimant_id,
         type="claim_approved",
@@ -232,10 +211,6 @@ def approve_resolution(
 
     return { "ok": True }
 
-
-class ResolutionRejectRequest(BaseModel):
-    rejection_reason: str = Field(min_length=20, max_length=280)
-
 @router.post("/{resolution_id}/reject")
 def reject_resolution(
     resolution_id: uuid.UUID,
@@ -245,30 +220,32 @@ def reject_resolution(
 ):
     user = get_db_user(session, current_user)
 
-    # Fetch resolution
-    resolution = session.get(Resolution, resolution_id)
-    if not resolution:
+    query = (
+        select(Resolution, Item)
+        .join(Item, Resolution.found_item_id == Item.id)
+        .where(Resolution.id == resolution_id)
+    )
+
+    result = session.exec(query).first()
+    if not result:
         raise HTTPException(status_code=404, detail="Resolution not found")
 
-    # Fetch found item
-    found_item = session.get(Item, resolution.found_item_id)
-    if not found_item:
-        raise HTTPException(status_code=404, detail="Found item not found")
+    resolution, found_item = result
 
     # Ensure user is the finder of the item
     if found_item.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized to reject this resolution")
+    
+    # State guard
+    if resolution.status != "pending":
+        raise HTTPException(status_code=400, detail="Only pending resolutions can be rejected")
 
     # Update resolution status
     resolution.status = "rejected"
     resolution.rejection_reason = payload.rejection_reason
     resolution.decided_at = datetime.now(timezone.utc)
-    
-    session.add(resolution)
-    session.commit()
-    session.refresh(resolution)
 
-    # Notify claimant
+    # Notify claimant (create new notification)
     notification = Notification(
         user_id=resolution.claimant_id,
         type="claim_rejected",

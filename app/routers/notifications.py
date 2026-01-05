@@ -61,16 +61,12 @@ async def mark_notification_read(
     ).first()
 
     if not notif:
-        raise HTTPException(
-            status_code=404,
-            detail="Notification not found"
-        )
+        raise HTTPException(status_code=404, detail="Notification not found")
 
     notif.is_read = True
-    session.add(notif)
     session.commit()
 
-    return {"ok": True}
+    return { "ok": True }
 
 @router.post("/mark-all-read")
 async def mark_all_notifications_read(
@@ -87,8 +83,7 @@ async def mark_all_notifications_read(
 
     for notif in notifications:
         notif.is_read = True
-        session.add(notif)
 
     session.commit()
 
-    return {"ok": True}
+    return { "ok": True }

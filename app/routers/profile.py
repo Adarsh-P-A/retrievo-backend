@@ -1,4 +1,3 @@
-import re
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
 from pydantic import BaseModel
@@ -9,69 +8,40 @@ from app.models.item import Item
 from app.models.user import User
 from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user
 from app.utils.s3_service import get_all_urls
+from app.schemas.profile_schemas import PhoneSetPayload, HostelSetPayload
 
 
 router = APIRouter()
 
-class HostelPayload(BaseModel):
-    hostel: str
-
-
 @router.post("/set-hostel")
 async def set_hostel(
-    payload: HostelPayload,
+    payload: HostelSetPayload,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
     user = get_db_user(session, current_user)
-
-    if payload.hostel not in ['boys', 'girls']:
-        raise HTTPException(status_code=400, detail="Invalid hostel option")
-
     user.hostel = payload.hostel
     
-    session.add(user)
     session.commit()
-    session.refresh(user)
 
-    return {"ok": True}
-
-class PhonePayload(BaseModel):
-    phone: str
+    return { "ok": True }
 
 @router.post("/set-phone")
 async def set_phone(
-    payload: PhonePayload,
+    payload: PhoneSetPayload,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
     user = get_db_user(session, current_user)
 
     if user.phone:
-        raise HTTPException(
-            status_code=403,
-            detail="Phone number already set"
-        )
-    
-    E164_REGEX = re.compile(r"^\+[1-9]\d{7,14}$")
+        raise HTTPException(status_code=403, detail="Phone number already set")
 
-    # Normalize input
-    phone = payload.phone.strip()
-    phone = re.sub(r"[ \-\(\)]", "", phone)  # remove spaces, dashes, ()
+    user.phone = payload.phone
 
-    if not E164_REGEX.match(phone):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid phone number. Use format: +<countrycode><number>"
-        )
-
-    user.phone = phone
-
-    session.add(user)
     session.commit()
-    session.refresh(user)
 
-    return {"ok": True}
+    return { "ok": True }
 
 @router.get("/me")
 async def get_my_profile(
@@ -94,9 +64,15 @@ async def get_my_items(
         .order_by(Item.created_at.desc())
     ).all()
 
-    # Separate by type
-    lost_items = [item for item in items if item.type == "lost"]
-    found_items = [item for item in items if item.type == "found"]
+    # Separate lost and found items
+    lost_items = []
+    found_items = []
+
+    for item in items:
+        if item.type == "lost":
+            lost_items.append(item)
+        else:
+            found_items.append(item)
 
     return {
         "lost_items": get_all_urls(lost_items),
@@ -119,15 +95,7 @@ async def get_profile(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Determine viewer's hostel (if logged in)
-    hostel = None
-    
-    if current_user:
-        viewer = session.exec(
-            select(User).where(User.public_id == current_user["sub"])
-        ).first()
-
-        if viewer:
-            hostel = viewer.hostel
+    hostel = current_user.get("hostel") if current_user else None
 
     # Build item query
     query = select(Item).where(Item.user_id == profile_user.id)
@@ -139,8 +107,15 @@ async def get_profile(
 
     items = session.exec(query).all()
 
-    lost_items = [item for item in items if item.type == "lost"]
-    found_items = [item for item in items if item.type == "found"]
+    # Separate lost and found items
+    lost_items = []
+    found_items = []
+
+    for item in items:
+        if item.type == "lost":
+            lost_items.append(item)
+        else:
+            found_items.append(item)
 
     return {
         "user": {

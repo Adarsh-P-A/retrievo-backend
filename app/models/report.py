@@ -1,8 +1,20 @@
 from typing import Optional
 import uuid
+from enum import Enum
 from sqlmodel import Field, SQLModel, UniqueConstraint
 from datetime import datetime, timezone
 
+class ReportReason(str, Enum):
+    spam = "spam"
+    inappropriate = "inappropriate"
+    harassment = "harassment"
+    fake = "fake"
+    other = "other"
+
+
+class ReportStatus(str, Enum):
+    pending = "pending"
+    reviewed = "reviewed"
 
 class Report(SQLModel, table=True):
     __tablename__ = "reports"
@@ -13,13 +25,13 @@ class Report(SQLModel, table=True):
     # Reporter info
     user_id: int = Field(foreign_key="users.id")
 
-    item_id: uuid.UUID = Field(foreign_key="items.id", index=True)
+    item_id: uuid.UUID = Field(foreign_key="items.id", index=True, ondelete="CASCADE")
 
     # Report fields
-    reason: str
+    reason: ReportReason = Field(index=True)
     
     # Status
-    status: str = Field(default="pending", index=True)  # "pending", "reviewed", "dismissed"
+    status: ReportStatus = Field(default=ReportStatus.pending, index=True)
     reviewed_by: Optional[int] = Field(default=None, foreign_key="users.id")
     reviewed_at: Optional[datetime] = Field(default=None)
 
