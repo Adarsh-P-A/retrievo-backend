@@ -234,6 +234,7 @@ def get_users_for_management(
         .subquery()
     )
 
+    # Count no. of reports received across all items posted by a user
     reports_count_sq = (
         select(
             Item.user_id,
@@ -244,6 +245,8 @@ def get_users_for_management(
         .subquery()
     )
 
+    # COALESCE(x, 0) means, if no row exists, return 0 instead of NULL
+    # Outer join to include users with zero items/reports
     rows = session.exec(
         select(
             User,

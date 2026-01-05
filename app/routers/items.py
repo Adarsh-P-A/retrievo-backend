@@ -85,7 +85,11 @@ async def get_all_items(
     hostel = get_user_hostel(session, current_user)
 
     # Query all items
-    query = select(Item).where(Item.is_hidden == False).order_by(Item.created_at.desc())
+    query = (
+        select(Item)
+        .where(Item.is_hidden == False)
+        .order_by(Item.created_at.desc())
+    )
 
     # apply visibility filters based on user's hostel
     if hostel:
@@ -113,8 +117,13 @@ async def get_item(
     hostel = get_user_hostel(session, current_user)
 
     query = (
-        select(Item, User)
+        select(Item, User, Resolution.status)
         .join(User, User.id == Item.user_id)
+        .outerjoin(
+            Resolution,
+            (Resolution.found_item_id == Item.id)
+            & (Resolution.status.in_(["pending", "approved"]))
+        )
         .where(Item.id == item_id)
         .where(Item.is_hidden == False)
     )
@@ -122,24 +131,13 @@ async def get_item(
     result = session.exec(query).first()
     if not result:
         raise HTTPException(404, "Item not found")
+    
+    item, user, claim_status = result
+    claim_status = claim_status or "none"
 
-    item, user = result
-
-    # check visibility rules
+    # visibility check
     if item.visibility != "public" and item.visibility != hostel:
         raise HTTPException(403, "Unauthorized to view this item")
-
-    # check for existing claim
-    claim_status = "none"
-
-    claim = session.exec(
-        select(Resolution)
-        .where(Resolution.found_item_id == item.id)
-        .where((Resolution.status == "pending") | (Resolution.status == "approved")) # don't send rejection info
-    ).first()
-
-    if claim:
-        claim_status = claim.status
 
     item_dict = item.model_dump()
     item_dict["image"] = generate_signed_url(item.image)
@@ -161,26 +159,24 @@ async def update_item(
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
-    item = session.exec(
-        select(Item)
+    query = (
+        select(Item, Resolution.id)
+        .outerjoin(
+            Resolution,
+            (Resolution.found_item_id == Item.id)
+            & (Resolution.status.in_(["pending", "approved"]))
+        )
         .where(Item.id == item_id)
         .where(Item.is_hidden == False)
-    ).first()
+    )
 
-    if not item:
+    result = session.exec(query).first()
+    if not result:
         raise HTTPException(status_code=404, detail="Item not found")
-    
-    # get resolution status
-    # if item is claimed and resolution is pending/approved, block updates
-    resolution = session.exec(
-        select(Resolution)
-        .where(
-            (Resolution.found_item_id == item.id) &
-            ((Resolution.status == "pending") | (Resolution.status == "approved"))
-        )
-    ).first()
 
-    if resolution:
+    item, active_resolution_id = result
+    
+    if active_resolution_id:
         raise HTTPException(
             status_code=400,
             detail="Cannot update item while it has a pending or approved claim",
@@ -188,23 +184,18 @@ async def update_item(
 
     user = get_db_user(session, current_user)
     if not user or item.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Unauthorized")
+        raise HTTPException(status_code=403, detail="Unauthorized to update this item")
 
     update_data = updates.model_dump(exclude_unset=True) # only get provided fields (skip None fields)
-
     if not update_data:
-        raise HTTPException(
-            status_code=400,
-            detail="No fields provided for update",
-        )
+        raise HTTPException(status_code=400, detail="No fields provided for update")
 
     for field, value in update_data.items():
         setattr(item, field, value)
 
     session.commit()
-    session.refresh(item)
 
-    return {"id": item.id}
+    return item.id
 
 @router.delete("/{item_id}")
 async def delete_item(
@@ -235,9 +226,7 @@ async def delete_item(
     session.delete(item)
     session.commit()
 
-    return {
-    "ok": True
-}
+    return { "ok": True }
 
 @router.post("/{id}/report")
 async def report_item(
@@ -247,15 +236,16 @@ async def report_item(
     current_user=Depends(get_current_user_required),
 ):  
     item = session.exec(
-        select(Item).where(Item.id == id)
+        select(Item)
+        .where(Item.id == id)
+        .where(Item.is_hidden == False)
     ).first()
 
-    if not item or item.is_hidden: # hidden items cannot be reported
+    if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
     # Only logged in users can report
     user = get_db_user(session, current_user)
-    
     if not user:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
@@ -274,7 +264,6 @@ async def report_item(
 
     try:
         session.commit()
-        session.refresh(report)
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="You have already reported this item")
@@ -285,8 +274,6 @@ async def report_item(
         select(func.count(Report.id))
         .where(Report.item_id == item.id)
     ).first()
-
-    session.refresh(item) # refresh to get latest state
 
     if report_count >= 5:
         item.is_hidden = True
@@ -301,7 +288,6 @@ async def report_item(
             item_id=item.id,
         )
 
-        session.add(item)
         session.add(notification)
         session.commit()
 
