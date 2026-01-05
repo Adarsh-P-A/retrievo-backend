@@ -6,12 +6,22 @@ from pydantic import BaseModel
 
 class OverviewStats(BaseModel):
     total_items: int
-    items_current_month: int
-    claims_approved_current_month: int
-    claims_rejected_current_month: int
+    items_this_month: int
+    items_last_month: int
+    
+    claims_approved_this_month: int
+    claims_approved_last_month: int
+    claims_rejected_this_month: int
+    claims_rejected_last_month: int
     claims_pending: int
+
     active_reports: int
-    reports_current_month: int
+    reports_this_month: int
+    reports_last_month: int
+
+    total_users: int
+    users_this_month: int
+    users_last_month: int
 
 
 class ActivityItem(BaseModel):

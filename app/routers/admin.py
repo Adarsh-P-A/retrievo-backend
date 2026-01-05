@@ -16,16 +16,6 @@ from app.schemas.admin_schemas import *
 
 router = APIRouter()
 
-@router.get("/admin-check")
-def admin_check(
-    session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
-):
-    return {
-        "ok": True, 
-        "message": "User is admin"
-    }
-
 @router.get("/stats", response_model=OverviewStats)
 def get_overview_stats(
     session: Session = Depends(get_session),
@@ -35,16 +25,33 @@ def get_overview_stats(
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
+    prev_month_end = month_start
+    prev_month_start = (
+        month_start - timedelta(days=1)
+    ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
     # Items
-    total_items, items_current = session.exec(
+    total_items, items_this_month, items_last_month = session.exec(
         select(
             func.count(Item.id),
             func.count().filter(Item.created_at >= month_start),
+            func.count().filter(
+                and_(
+                    Item.created_at >= prev_month_start,
+                    Item.created_at < prev_month_end,
+                )
+            ),
         )
     ).one()
 
     # Claims
-    claims_approved, claims_rejected, claims_pending = session.exec(
+    ( 
+        claims_approved_this_month,
+        claims_approved_last_month,
+        claims_rejected_this_month,
+        claims_rejected_last_month,
+        claims_pending 
+    ) = session.exec(
         select(
             func.count().filter(
                 and_(
@@ -54,8 +61,22 @@ def get_overview_stats(
             ),
             func.count().filter(
                 and_(
+                    Resolution.status == "approved",
+                    Resolution.decided_at >= prev_month_start,
+                    Resolution.decided_at < prev_month_end,
+                )
+            ),
+            func.count().filter(
+                and_(
                     Resolution.status == "rejected",
                     Resolution.decided_at >= month_start,
+                )
+            ),
+            func.count().filter(
+                and_(
+                    Resolution.status == "rejected",
+                    Resolution.decided_at >= prev_month_start,
+                    Resolution.decided_at < prev_month_end,
                 )
             ),
             func.count().filter(Resolution.status == "pending"),
@@ -63,21 +84,58 @@ def get_overview_stats(
     ).one()
 
     # Reports
-    active_reports, reports_current = session.exec(
+    (
+        active_reports,
+        reports_this_month,
+        reports_last_month,
+    ) = session.exec(
         select(
             func.count().filter(Report.status == "pending"),
             func.count().filter(Report.created_at >= month_start),
+            func.count().filter(
+                and_(
+                    Report.created_at >= prev_month_start,
+                    Report.created_at < prev_month_end,
+                )
+            ),
+        )
+    ).one()
+
+    (
+        total_users,
+        users_this_month,
+        users_last_month,
+    ) = session.exec(
+        select(
+            func.count(User.id),
+            func.count().filter(User.created_at >= month_start),
+            func.count().filter(
+                and_(
+                    User.created_at >= prev_month_start,
+                    User.created_at < prev_month_end,
+                )
+            ),
         )
     ).one()
 
     return OverviewStats(
         total_items=total_items,
-        items_current_month=items_current,
-        claims_approved_current_month=claims_approved,
-        claims_rejected_current_month=claims_rejected,
+        items_this_month=items_this_month,
+        items_last_month=items_last_month,
+        
+        claims_approved_this_month=claims_approved_this_month,
+        claims_approved_last_month=claims_approved_last_month,
+        claims_rejected_this_month=claims_rejected_this_month,
+        claims_rejected_last_month=claims_rejected_last_month,
         claims_pending=claims_pending,
+
         active_reports=active_reports,
-        reports_current_month=reports_current,
+        reports_this_month=reports_this_month,
+        reports_last_month=reports_last_month,
+
+        total_users=total_users,
+        users_this_month=users_this_month,
+        users_last_month=users_last_month,
     )
 
 
