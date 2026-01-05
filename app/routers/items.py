@@ -7,7 +7,7 @@ from app.db.db import get_session
 from app.models.item import Item
 from app.models.resolution import Resolution
 from app.models.user import User
-from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user, get_user_hostel
+from app.utils.auth_helper import get_current_user_optional, get_current_user_required, get_db_user
 from app.utils.s3_service import compress_image, delete_s3_object, generate_signed_url, get_all_urls, upload_to_s3
 from app.models.report import Report
 from app.models.notification import Notification
@@ -82,7 +82,7 @@ async def get_all_items(
     current_user=Depends(get_current_user_optional),
 ):
     # Get user's hostel if logged in
-    hostel = get_user_hostel(session, current_user)
+    hostel = current_user.get("hostel") if current_user else None
 
     # Query all items
     query = (
@@ -114,7 +114,7 @@ async def get_item(
     current_user=Depends(get_current_user_optional),
 ):
     # Get user's hostel if logged in
-    hostel = get_user_hostel(session, current_user)
+    hostel = current_user.get("hostel") if current_user else None
 
     query = (
         select(Item, User, Resolution.status)

@@ -20,16 +20,11 @@ async def set_hostel(
     current_user=Depends(get_current_user_required),
 ):
     user = get_db_user(session, current_user)
-
-    if payload.hostel not in ['boys', 'girls']:
-        raise HTTPException(status_code=400, detail="Invalid hostel option")
-
     user.hostel = payload.hostel
     
     session.commit()
-    session.refresh(user)
 
-    return {"ok": True}
+    return { "ok": True }
 
 @router.post("/set-phone")
 async def set_phone(
@@ -40,17 +35,13 @@ async def set_phone(
     user = get_db_user(session, current_user)
 
     if user.phone:
-        raise HTTPException(
-            status_code=403,
-            detail="Phone number already set"
-        )
+        raise HTTPException(status_code=403, detail="Phone number already set")
 
     user.phone = payload.phone
 
     session.commit()
-    session.refresh(user)
 
-    return {"ok": True}
+    return { "ok": True }
 
 @router.get("/me")
 async def get_my_profile(
@@ -73,9 +64,15 @@ async def get_my_items(
         .order_by(Item.created_at.desc())
     ).all()
 
-    # Separate by type
-    lost_items = [item for item in items if item.type == "lost"]
-    found_items = [item for item in items if item.type == "found"]
+    # Separate lost and found items
+    lost_items = []
+    found_items = []
+
+    for item in items:
+        if item.type == "lost":
+            lost_items.append(item)
+        else:
+            found_items.append(item)
 
     return {
         "lost_items": get_all_urls(lost_items),
@@ -98,15 +95,7 @@ async def get_profile(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Determine viewer's hostel (if logged in)
-    hostel = None
-    
-    if current_user:
-        viewer = session.exec(
-            select(User).where(User.public_id == current_user["sub"])
-        ).first()
-
-        if viewer:
-            hostel = viewer.hostel
+    hostel = current_user.get("hostel") if current_user else None
 
     # Build item query
     query = select(Item).where(Item.user_id == profile_user.id)
@@ -118,8 +107,15 @@ async def get_profile(
 
     items = session.exec(query).all()
 
-    lost_items = [item for item in items if item.type == "lost"]
-    found_items = [item for item in items if item.type == "found"]
+    # Separate lost and found items
+    lost_items = []
+    found_items = []
+
+    for item in items:
+        if item.type == "lost":
+            lost_items.append(item)
+        else:
+            found_items.append(item)
 
     return {
         "user": {

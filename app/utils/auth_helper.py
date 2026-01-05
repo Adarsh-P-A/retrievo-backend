@@ -38,22 +38,6 @@ def get_current_user_required(token: HTTPAuthorizationCredentials = Depends(bear
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-
-def get_user_hostel(
-    session: Session = Depends(get_session), 
-    current_user: dict = Depends(get_current_user_required)
-):
-    # user lookup for getting hostel preference
-    if current_user:
-        user = session.exec(
-            select(User).where(User.public_id == current_user["sub"])
-        ).first()
-
-        if user and not user.is_banned:
-            return user.hostel
-
-    return None
-
 def get_db_user(
     session: Session = Depends(get_session), 
     current_user: dict = Depends(get_current_user_required)

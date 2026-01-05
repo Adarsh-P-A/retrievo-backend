@@ -75,6 +75,7 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
         "sub": db_user.public_id,
         "iat": datetime.now(timezone.utc),
         "exp": expiry,
+        "hostel": db_user.hostel,
     }
 
     token = jwt.encode(jwt_payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -108,6 +109,7 @@ def refresh_token(payload: RefreshTokenRequest, session: Session = Depends(get_s
             "sub": db_user.public_id,
             "iat": datetime.now(timezone.utc),
             "exp": expiry,
+            "hostel": db_user.hostel,
         }
         
         new_token = jwt.encode(jwt_payload, SECRET_KEY, algorithm=ALGORITHM)
