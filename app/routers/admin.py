@@ -10,7 +10,7 @@ from app.models.user import User
 from app.models.item import Item
 from app.models.resolution import Resolution
 from app.models.report import Report
-from app.utils.auth_helper import require_admin
+from app.utils.auth_helper import get_require_admin
 from app.models.notification import Notification
 from app.schemas.admin_schemas import *
 
@@ -19,7 +19,7 @@ router = APIRouter()
 @router.get("/stats", response_model=OverviewStats)
 def get_overview_stats(
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(get_require_admin)
 ):
     """Get overview statistics for the admin dashboard"""
     now = datetime.now(timezone.utc)
@@ -143,7 +143,7 @@ def get_overview_stats(
 def get_recent_activity(
     limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(get_require_admin),
 ):
     """Get recent admin activity feed"""
 
@@ -233,7 +233,7 @@ def get_claims_for_moderation(
     skip: int = 0,
     limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(get_require_admin)
 ):
     """Get claims for moderation"""
 
@@ -280,7 +280,7 @@ def get_users_for_management(
     skip: int = 0,
     limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(get_require_admin)
 ):
     """Get all users with moderation info"""
     items_count_sq = (
@@ -344,7 +344,7 @@ def moderate_user(
     user_id: int,
     payload: ModerateUserRequest,
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(get_require_admin)
 ):
     """Moderate a user (warn, ban, unban)"""
     user = session.get(User, user_id)
@@ -403,7 +403,7 @@ def get_reported_items(
     skip: int = 0,
     limit: int = Query(50, ge=1, le=100),
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(get_require_admin)
 ):
     """Get all reported items"""
 
@@ -468,11 +468,11 @@ def get_reported_items(
 
 
 @router.post("/items/{item_id}/moderate")
-def moderate_item(
+async def moderate_item(
     item_id: uuid.UUID,
     payload: ModerateItemRequest,
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin)
+    admin: User = Depends(get_require_admin)
 ):
     """Moderate an item (hide, restore, delete)"""    
     item = session.get(Item, item_id)
@@ -482,7 +482,7 @@ def moderate_item(
     
     if payload.action == "hide":
         item.is_hidden = True
-        item.hidden_reason = payload.reason or "admin_moderation"
+        item.hidden_reason = "admin_moderation"
         
         try:
             session.commit()

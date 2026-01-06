@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
+from time import time
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from jose import JWTError, jwt
 from sqlmodel import Session, select
 from google.oauth2 import id_token
@@ -9,29 +9,19 @@ from google.auth.transport import requests as grequests
 
 from app.db.db import get_session
 from app.models.user import User
+from app.schemas.auth_schemas import GoogleIDToken, RefreshTokenRequest, TokenResponse
 
 router = APIRouter()
 
-SECRET_KEY = os.getenv("JWT_SECRET", 'your_really_long_secret_key')
-CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+SECRET_KEY = os.environ["JWT_SECRET"]
+CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
 
 if not CLIENT_ID or not SECRET_KEY:
     raise ValueError("Environment variables not set")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 1 day
-
-
-class GoogleIDToken(BaseModel):
-    id_token: str
-
-class TokenResponse(BaseModel):
-    access_token: str
-    expires_at: int  # Unix timestamp
-
-
-class RefreshTokenRequest(BaseModel):
-    token: str
+ACCESS_TOKEN_EXPIRE_MINUTES = 30 # 30 minutes
+MAX_SESSION_AGE_SECONDS = 24 * 60 * 60  # 24 hours
 
 
 @router.post("/google", response_model=TokenResponse)
@@ -64,23 +54,29 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
             name=name,
             image=picture,
             email=email,
-            role="user",        
+            role="user",
         )
         session.add(db_user)
         session.commit()
 
+    session_start = int(time())
     expiry = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     jwt_payload = {
         "sub": db_user.public_id,
         "iat": datetime.now(timezone.utc),
         "exp": expiry,
+        "session_start": session_start,
         "hostel": db_user.hostel,
+        "role": db_user.role,
     }
 
     token = jwt.encode(jwt_payload, SECRET_KEY, algorithm=ALGORITHM)
 
-    return TokenResponse(access_token=token, expires_at=int(expiry.timestamp()))
+    return TokenResponse(
+        access_token=token, 
+        expires_at=int(expiry.timestamp())
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -92,29 +88,43 @@ def refresh_token(payload: RefreshTokenRequest, session: Session = Depends(get_s
     try:
         # Decode the existing token (this will fail if token is invalid or expired)
         decoded = jwt.decode(payload.token, SECRET_KEY, algorithms=[ALGORITHM])
-        
-        # Get the user from the database
-        google_id = decoded.get("sub")
-        if not google_id:
+
+        # Extract token structure info to validate
+        session_start = decoded.get("session_start")
+        if not session_start:
             raise HTTPException(status_code=401, detail="Invalid token structure")
         
-        db_user = session.exec(select(User).where(User.public_id == google_id)).first()
-        if not db_user:
-            raise HTTPException(status_code=404, detail="User not found")
+        if not decoded.get("sub"):
+            raise HTTPException(status_code=401, detail="Invalid token structure")
+
+        # Check if the session is still valid
+        if time() - session_start > MAX_SESSION_AGE_SECONDS:
+            raise HTTPException(status_code=401, detail="Session expired")
+        
+        user = session.exec(
+            select(User).where(User.public_id == decoded["sub"])
+        ).first()
+
+        if not user or user.is_banned:
+            raise HTTPException(status_code=403, detail="User banned")
         
         # Create a new token with fresh expiration
         expiry = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         
-        jwt_payload = {
-            "sub": db_user.public_id,
+        new_payload = {
+            "sub": decoded["sub"],
             "iat": datetime.now(timezone.utc),
             "exp": expiry,
-            "hostel": db_user.hostel,
+            "session_start": session_start,
+            "role": decoded.get("role"),
         }
         
-        new_token = jwt.encode(jwt_payload, SECRET_KEY, algorithm=ALGORITHM)
-        
-        return TokenResponse(access_token=new_token, expires_at=int(expiry.timestamp()))
+        new_token = jwt.encode(new_payload, SECRET_KEY, algorithm=ALGORITHM)
+
+        return TokenResponse(
+            access_token=new_token,
+            expires_at=int(expiry.timestamp())
+        )
         
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid or expired token: {str(e)}")

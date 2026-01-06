@@ -1,6 +1,6 @@
 # Response Models
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel
 
 
@@ -85,11 +85,10 @@ class InsightData(BaseModel):
 
 
 class ModerateUserRequest(BaseModel):
-    action: str  # "warn", "temp_ban", "perm_ban", "unban"
+    action: Literal["warn", "temp_ban", "perm_ban", "unban"]
     reason: Optional[str] = None
     ban_days: Optional[int] = None
 
 
 class ModerateItemRequest(BaseModel):
-    action: str  # "hide", "restore", "delete"
-    reason: Optional[str] = None
+    action: Literal["hide", "restore", "delete"]

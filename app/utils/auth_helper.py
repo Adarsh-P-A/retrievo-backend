@@ -51,13 +51,10 @@ def get_db_user(
 
     return user
 
-def require_admin(
-    session: Session = Depends(get_session),
-    current_user: dict = Depends(get_current_user_required),
+def get_require_admin(
+    current_user: dict = Depends(get_current_user_required)
 ):
-    db_user = get_db_user(session, current_user)
-
-    if db_user.role != "admin":
-        raise HTTPException(403, "Admin access required")
-
-    return db_user
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    
+    return current_user
