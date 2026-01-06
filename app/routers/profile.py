@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
-from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.db.db import get_session

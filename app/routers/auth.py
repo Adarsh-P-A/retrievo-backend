@@ -10,11 +10,12 @@ from google.auth.transport import requests as grequests
 from app.db.db import get_session
 from app.models.user import User
 from app.schemas.auth_schemas import GoogleIDToken, RefreshTokenRequest, TokenResponse
+from app.models.notification import Notification
 
 router = APIRouter()
 
-SECRET_KEY = os.environ["JWT_SECRET"]
-CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
+SECRET_KEY = os.getenv("JWT_SECRET")
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 if not CLIENT_ID or not SECRET_KEY:
     raise ValueError("Environment variables not set")
@@ -56,7 +57,18 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
             email=email,
             role="user",
         )
+
         session.add(db_user)
+        session.flush() # to get db_user.id for foreign key
+
+        notification = Notification(
+            user_id=db_user.id,
+            type="system_notice",
+            title="Welcome to Retrievo!",
+            message="Thank you for joining the Retrievo community. Please choose your hostel in your profile settings to get started.",
+        )
+        
+        session.add(notification)
         session.commit()
 
     session_start = int(time())

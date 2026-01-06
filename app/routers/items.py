@@ -116,6 +116,9 @@ async def get_item(
     # Get user's hostel if logged in
     hostel = current_user.get("hostel") if current_user else None
 
+    # Check if user is admin (admins can view all items)
+    is_admin = current_user.get("role") == "admin" if current_user else False
+
     query = (
         select(Item, User, Resolution.status)
         .join(User, User.id == Item.user_id)
@@ -125,8 +128,10 @@ async def get_item(
             & (Resolution.status.in_(["pending", "approved"]))
         )
         .where(Item.id == item_id)
-        .where(Item.is_hidden == False)
     )
+
+    if not is_admin:
+        query = query.where(Item.is_hidden == False)
 
     result = session.exec(query).first()
     if not result:

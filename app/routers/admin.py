@@ -10,7 +10,7 @@ from app.models.user import User
 from app.models.item import Item
 from app.models.resolution import Resolution
 from app.models.report import Report
-from app.utils.auth_helper import get_require_admin
+from app.utils.auth_helper import get_db_user, get_require_admin
 from app.models.notification import Notification
 from app.schemas.admin_schemas import *
 
@@ -474,7 +474,8 @@ async def moderate_item(
     session: Session = Depends(get_session),
     admin: User = Depends(get_require_admin)
 ):
-    """Moderate an item (hide, restore, delete)"""    
+    """Moderate an item (hide, restore, delete)"""
+    user = get_db_user(session, admin)
     item = session.get(Item, item_id)
     
     if not item:
@@ -505,7 +506,7 @@ async def moderate_item(
             .where(Report.item_id == item.id)
             .values(
                 status="reviewed",
-                reviewed_by=admin.id,
+                reviewed_by=user.id,
                 reviewed_at=datetime.now(timezone.utc),
             )
         )
