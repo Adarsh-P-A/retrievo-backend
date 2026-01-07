@@ -29,7 +29,6 @@ class ActivityItem(BaseModel):
     type: str  # "claim_approved", "claim_rejected", "claim_pending", "report_filed", "item_auto_hidden"
     description: str
     timestamp: datetime
-    metadata: dict
 
 
 class ClaimDetail(BaseModel):
@@ -73,7 +72,6 @@ class ReportedItemDetail(BaseModel):
     hidden_reason: Optional[str]
     created_at: datetime
     reports: List[dict]
-
 
 class InsightData(BaseModel):
     most_reported_items: List[dict]

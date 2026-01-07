@@ -173,11 +173,6 @@ def get_recent_activity(
             type=f"claim_{res.status}",
             description=f"{user.name} claimed '{item.title}' - {claim_descriptions[res.status]}",
             timestamp=res.decided_at or res.created_at,
-            metadata={
-                "item_id": str(item.id),
-                "claimer_id": user.public_id,
-                "resolution_id": str(res.id),
-            },
         ))
 
     # Reports
@@ -195,11 +190,6 @@ def get_recent_activity(
             type="report_filed",
             description=f"{user.name} reported '{item.title}' - {report.reason}",
             timestamp=report.created_at,
-            metadata={
-                "item_id": str(item.id),
-                "reporter_id": user.public_id,
-                "reason": report.reason,
-            },
         ))
 
     # Auto-hidden items (system)
@@ -219,7 +209,6 @@ def get_recent_activity(
             type="item_auto_hidden",
             description=f"Item '{item.title}' was auto-hidden due to multiple reports",
             timestamp=item.created_at,
-            metadata={"item_id": str(item.id)},
         ))
 
     # Final merge

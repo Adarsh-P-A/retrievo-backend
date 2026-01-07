@@ -278,6 +278,7 @@ async def report_item(
     report_count = session.exec(
         select(func.count(Report.id))
         .where(Report.item_id == item.id)
+        .where(Report.status == "pending")
     ).first()
 
     if report_count >= 5:
