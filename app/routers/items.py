@@ -78,6 +78,8 @@ async def add_item(
 
 @router.get("/all")
 async def get_all_items(
+    page: int = 1,
+    limit: int = 10,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_optional),
 ):
@@ -97,6 +99,14 @@ async def get_all_items(
     else:
         query = query.where(Item.visibility == 'public')
 
+    # Get total count for pagination
+    count_query = select(func.count()).select_from(query.subquery())
+    total = session.exec(count_query).one()
+
+    # Apply pagination
+    offset = (page - 1) * limit
+    query = query.offset(offset).limit(limit)
+
     # fetch items
     items = session.exec(query).all()
 
@@ -104,6 +114,10 @@ async def get_all_items(
 
     return {
         "items": items_response,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "has_more": offset + len(items) < total,
     }
 
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.db.db import get_session
 from app.models.item import Item
@@ -52,15 +52,28 @@ async def get_my_profile(
 
 @router.get("/items")
 async def get_my_items(
+    page: int = 1,
+    limit: int = 20,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_required),
 ):
     user = get_db_user(session, current_user)
 
+    # Get total count
+    total_count = session.exec(
+        select(func.count())
+        .select_from(Item)
+        .where(Item.user_id == user.id)
+    ).one()
+
+    # Apply pagination
+    offset = (page - 1) * limit
     items = session.exec(
         select(Item)
         .where(Item.user_id == user.id)
         .order_by(Item.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
 
     # Separate lost and found items
@@ -76,12 +89,18 @@ async def get_my_items(
     return {
         "lost_items": get_all_urls(lost_items),
         "found_items": get_all_urls(found_items),
+        "total": total_count,
+        "page": page,
+        "limit": limit,
+        "has_more": offset + len(items) < total_count,
     }
 
 
 @router.get("/{public_id}")
 async def get_profile(
     public_id: str,
+    page: int = 1,
+    limit: int = 20,
     session: Session = Depends(get_session),
     current_user=Depends(get_current_user_optional),
 ):
@@ -104,7 +123,13 @@ async def get_profile(
     else:
         query = query.where(Item.visibility == "public")
 
-    items = session.exec(query).all()
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total_count = session.exec(count_query).one()
+
+    # Apply pagination
+    offset = (page - 1) * limit
+    items = session.exec(query.order_by(Item.created_at.desc()).offset(offset).limit(limit)).all()
 
     # Separate lost and found items
     lost_items = []
@@ -125,4 +150,8 @@ async def get_profile(
         },
         "lost_items": get_all_urls(lost_items),
         "found_items": get_all_urls(found_items),
+        "total": total_count,
+        "page": page,
+        "limit": limit,
+        "has_more": offset + len(items) < total_count,
     }
