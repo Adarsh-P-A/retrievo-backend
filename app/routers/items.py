@@ -114,7 +114,6 @@ async def get_all_items(
 
     return {
         "items": items_response,
-        "total": total,
         "page": page,
         "limit": limit,
         "has_more": offset + len(items) < total,

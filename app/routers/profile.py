@@ -89,7 +89,6 @@ async def get_my_items(
     return {
         "lost_items": get_all_urls(lost_items),
         "found_items": get_all_urls(found_items),
-        "total": total_count,
         "page": page,
         "limit": limit,
         "has_more": offset + len(items) < total_count,
@@ -150,7 +149,6 @@ async def get_profile(
         },
         "lost_items": get_all_urls(lost_items),
         "found_items": get_all_urls(found_items),
-        "total": total_count,
         "page": page,
         "limit": limit,
         "has_more": offset + len(items) < total_count,

@@ -20,13 +20,20 @@ ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y libpq5 && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd -r appuser \
+    && useradd -r -g appuser -d /app -s /usr/sbin/nologin appuser
+
 # Copy installed dependencies from build stage
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY . .
 
+RUN chown -R appuser:appuser /app
+
 RUN chmod +x /app/entrypoint.sh
+
+USER appuser
 
 EXPOSE 8000
 

@@ -1,13 +1,19 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, items, notifications, profile, resolutions, admin
 
 app = FastAPI()
 
+origins = set([
+    "http://localhost:3000",
+    os.getenv("FRONTEND_URL")
+])
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[origin for origin in origins if origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
