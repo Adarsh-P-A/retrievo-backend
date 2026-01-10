@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 from time import time
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from jose import JWTError, jwt
 from sqlmodel import Session, select
 from google.oauth2 import id_token
@@ -24,11 +24,19 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30 # 30 minutes
 MAX_SESSION_AGE_SECONDS = 24 * 60 * 60  # 24 hours
 
+grequest = grequests.Request()
+
 
 @router.post("/google", response_model=TokenResponse)
 def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session)):
     try:
-        idinfo = id_token.verify_oauth2_token(payload.id_token, grequests.Request(), CLIENT_ID)
+        # Verify token with Google - this validates signature, expiration, and audience
+        idinfo = id_token.verify_oauth2_token(
+            payload.id_token, 
+            grequest, 
+            CLIENT_ID,
+            clock_skew_in_seconds=30 # allow 30 seconds clock skew
+        )
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid Google ID token")
 
@@ -65,7 +73,7 @@ def google_auth(payload: GoogleIDToken, session: Session = Depends(get_session))
             user_id=db_user.id,
             type="system_notice",
             title="Welcome to Retrievo!",
-            message="Thank you for joining the Retrievo community. Please choose your hostel in your profile settings to get started.",
+            message="Please choose your hostel in your profile settings to get started.",
         )
         
         session.add(notification)
@@ -140,3 +148,4 @@ def refresh_token(payload: RefreshTokenRequest, session: Session = Depends(get_s
         
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid or expired token: {str(e)}")
+
